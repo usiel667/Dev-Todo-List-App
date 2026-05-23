@@ -2,6 +2,13 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
+if (process.env.NODE_ENV !== 'production') {
+  require('electron-reload')(__dirname, {
+    electron: path.join(__dirname, 'node_modules', '.bin', 'electron'),
+    hardReset: true
+  });
+}
+
 let mainWindow;
 
 function createWindow() {
