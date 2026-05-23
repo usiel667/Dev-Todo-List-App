@@ -260,12 +260,13 @@ function renderTodos() {
       const tagsHtml = todo.tags.map(t =>
         `<span class="todo-tag">#${escHtml(t)}</span>`
       ).join('');
+      const textHtml = renderTodoText(textNoTags);
 
       html += `
         <div class="todo-item${todo.done ? ' done' : ''}" data-id="${escHtml(todo.id)}" data-file="${escHtml(todo.filePath)}" data-line="${todo.lineIndex}">
           <input type="checkbox" class="todo-checkbox" ${todo.done ? 'checked' : ''} />
           <div class="todo-body">
-            <div class="todo-text">${escHtml(textNoTags)}</div>
+            <div class="todo-text">${textHtml}</div>
             ${tagsHtml ? `<div class="todo-tags">${tagsHtml}</div>` : ''}
           </div>
           <div class="todo-actions">
@@ -303,6 +304,13 @@ function attachTodoHandlers() {
 
     item.querySelector('.delete-btn').addEventListener('click', async () => {
       await deleteTodo(filePath, lineIndex);
+    });
+
+    item.querySelectorAll('.wiki-link').forEach(linkEl => {
+      linkEl.addEventListener('click', e => {
+        e.stopPropagation();
+        window.vault.openObsidianFile(vaultPath, linkEl.dataset.link);
+      });
     });
   });
 }
@@ -403,6 +411,18 @@ function escHtml(str) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+function renderTodoText(text) {
+  const parts = text.split(/(\[\[[^\]]+\]\])/g);
+  return parts.map(part => {
+    const m = part.match(/^\[\[([^\]]+)\]\]$/);
+    if (m) {
+      const link = m[1].trim();
+      return `<span class="wiki-link" data-link="${escHtml(link)}" title="Open in Obsidian: ${escHtml(link)}">${escHtml(link)}</span>`;
+    }
+    return escHtml(part);
+  }).join('');
 }
 
 // ── Event listeners ────────────────────────────────────────────────────────

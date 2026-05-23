@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -76,6 +76,14 @@ ipcMain.handle('write-file', async (_, filePath, content) => {
   } catch (err) {
     return { error: err.message };
   }
+});
+
+ipcMain.handle('open-obsidian-file', async (_, vaultPath, fileName) => {
+  const vaultName = path.basename(vaultPath);
+  const fileNoExt = fileName.replace(/\.md$/, '');
+  const url = `obsidian://open?vault=${encodeURIComponent(vaultName)}&file=${encodeURIComponent(fileNoExt)}`;
+  await shell.openExternal(url);
+  return { success: true };
 });
 
 ipcMain.handle('create-file', async (_, folderPath, fileName) => {
