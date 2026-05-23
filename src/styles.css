@@ -559,14 +559,16 @@ body {
 }
 
 .group-arrow {
-  font-size: 10px;
-  transition: transform 0.15s;
+  display: flex;
+  align-items: center;
   flex-shrink: 0;
-  color: var(--text-dim);
+  color: var(--text-muted);
+  transform: rotate(90deg);
+  transition: transform 0.15s ease, color 0.12s;
 }
 
 .group-arrow.collapsed {
-  transform: rotate(-90deg);
+  transform: rotate(0deg);
 }
 
 .group-name {
