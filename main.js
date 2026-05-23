@@ -79,9 +79,8 @@ ipcMain.handle('write-file', async (_, filePath, content) => {
 });
 
 ipcMain.handle('open-obsidian-file', async (_, vaultPath, fileName) => {
-  const vaultName = path.basename(vaultPath);
   const fileNoExt = fileName.replace(/\.md$/, '');
-  const url = `obsidian://open?vault=${encodeURIComponent(vaultName)}&file=${encodeURIComponent(fileNoExt)}`;
+  const url = `obsidian://open?file=${encodeURIComponent(fileNoExt)}`;
   await shell.openExternal(url);
   return { success: true };
 });
