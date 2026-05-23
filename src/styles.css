@@ -538,6 +538,13 @@ body {
   padding-bottom: 9px;
   border-bottom: 1px solid var(--border);
   margin-bottom: 8px;
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.12s;
+}
+
+.file-group-header:hover {
+  color: var(--text);
 }
 
 .file-group-header::before {
@@ -549,6 +556,33 @@ body {
   border-radius: 2px;
   opacity: 0.5;
   flex-shrink: 0;
+}
+
+.group-arrow {
+  font-size: 10px;
+  transition: transform 0.15s;
+  flex-shrink: 0;
+  color: var(--text-dim);
+}
+
+.group-arrow.collapsed {
+  transform: rotate(-90deg);
+}
+
+.group-name {
+  flex: 1;
+}
+
+.group-count {
+  font-size: 10px;
+  color: var(--text-dim);
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.file-group-todos.hidden {
+  display: none;
 }
 
 /* Todo items */

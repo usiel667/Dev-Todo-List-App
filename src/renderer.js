@@ -7,6 +7,7 @@ let selectedFilePath = null;
 let activeTag = null;
 let statusFilter = 'all';
 let searchQuery = '';
+const collapsedGroups = new Set();
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
 const openVaultBtn     = document.getElementById('open-vault-btn');
@@ -252,8 +253,14 @@ function renderTodos() {
     if (todos.length === 0) continue;
     shown += todos.length;
 
+    const isCollapsed = collapsedGroups.has(file.path);
     html += `<div class="file-group" data-file="${escHtml(file.path)}">`;
-    html += `<div class="file-group-header">${escHtml(file.relativePath)}</div>`;
+    html += `<div class="file-group-header" data-file="${escHtml(file.path)}">
+      <span class="group-arrow${isCollapsed ? ' collapsed' : ''}">▾</span>
+      <span class="group-name">${escHtml(file.relativePath)}</span>
+      <span class="group-count">${todos.length}</span>
+    </div>`;
+    html += `<div class="file-group-todos${isCollapsed ? ' hidden' : ''}">`;
 
     for (const todo of todos) {
       const textNoTags = todo.text.replace(/#[\w-]+/g, '').trim();
@@ -276,7 +283,7 @@ function renderTodos() {
         </div>`;
     }
 
-    html += '</div>';
+    html += '</div></div>';
   }
 
   if (html === '') {
@@ -290,6 +297,23 @@ function renderTodos() {
 }
 
 function attachTodoHandlers() {
+  todoListEl.querySelectorAll('.file-group-header').forEach(header => {
+    header.addEventListener('click', () => {
+      const filePath = header.dataset.file;
+      const todosEl = header.nextElementSibling;
+      const arrow = header.querySelector('.group-arrow');
+      if (collapsedGroups.has(filePath)) {
+        collapsedGroups.delete(filePath);
+        arrow.classList.remove('collapsed');
+        todosEl.classList.remove('hidden');
+      } else {
+        collapsedGroups.add(filePath);
+        arrow.classList.add('collapsed');
+        todosEl.classList.add('hidden');
+      }
+    });
+  });
+
   todoListEl.querySelectorAll('.todo-item').forEach(item => {
     const filePath = item.dataset.file;
     const lineIndex = parseInt(item.dataset.line, 10);
