@@ -112,7 +112,35 @@ function deleteTodoLine(fileContent, lineIndex) {
 }
 
 function appendTodo(fileContent, text) {
-  return fileContent.trimEnd() + '\n- [ ] ' + text + '\n';
+  const lines = fileContent.split('\n');
+
+  // Find a heading named TODO (any level)
+  const todoHeadingRe = /^(#{1,6})\s+TODO\s*$/i;
+  let todoLineIndex = -1;
+  let todoLevel = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(todoHeadingRe);
+    if (m) { todoLineIndex = i; todoLevel = m[1].length; break; }
+  }
+
+  if (todoLineIndex === -1) {
+    // No TODO section — append at end of file
+    return fileContent.trimEnd() + '\n- [ ] ' + text + '\n';
+  }
+
+  // Find where the TODO section ends (next heading of same or higher level)
+  let sectionEnd = lines.length;
+  for (let i = todoLineIndex + 1; i < lines.length; i++) {
+    const m = lines[i].match(/^(#{1,6})\s/);
+    if (m && m[1].length <= todoLevel) { sectionEnd = i; break; }
+  }
+
+  // Step back over any trailing blank lines inside the section
+  let insertAt = sectionEnd;
+  while (insertAt > todoLineIndex + 1 && lines[insertAt - 1].trim() === '') insertAt--;
+
+  lines.splice(insertAt, 0, '- [ ] ' + text);
+  return lines.join('\n');
 }
 
 // ── Vault operations ───────────────────────────────────────────────────────
