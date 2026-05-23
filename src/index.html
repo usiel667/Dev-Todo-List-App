@@ -7,54 +7,121 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <!-- Titlebar / drag region -->
+  <div class="titlebar">
+    <div class="titlebar-ribbon-filler"></div>
+    <div class="titlebar-drag">
+      <span class="titlebar-icon">◈</span>
+      <span class="titlebar-title">Dev Todo</span>
+      <span id="titlebar-vault" class="titlebar-vault"></span>
+    </div>
+  </div>
+
   <div class="app">
+    <!-- Left ribbon -->
+    <div class="ribbon">
+      <div class="ribbon-top">
+        <button class="ribbon-btn active" id="ribbon-files" title="Files">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+          </svg>
+        </button>
+        <button class="ribbon-btn" id="ribbon-tags" title="Tags">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
+            <line x1="7" y1="7" x2="7.01" y2="7"/>
+          </svg>
+        </button>
+      </div>
+      <div class="ribbon-bottom">
+        <button class="ribbon-btn" id="open-vault-btn" title="Open vault">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
     <!-- Sidebar -->
     <aside class="sidebar">
-      <div class="sidebar-top">
-        <div class="app-title">Dev Todo</div>
-        <button id="open-vault-btn" class="btn-primary">Open Vault</button>
-        <div id="vault-name" class="vault-name">No vault selected</div>
+      <div class="sidebar-vault-header">
+        <span class="vault-header-icon">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+          </svg>
+        </span>
+        <span id="vault-name" class="vault-name-label">No vault selected</span>
+        <button id="new-file-btn" class="icon-btn" title="New note" disabled>+</button>
       </div>
 
-      <div class="sidebar-section">
-        <div class="section-header">
-          <span>Files</span>
-          <button id="new-file-btn" class="btn-icon" title="New file" disabled>+</button>
+      <!-- Files section -->
+      <div class="sidebar-section" id="section-files">
+        <div class="section-header" id="section-header-files">
+          <span class="section-arrow">▾</span>
+          <span>FILES</span>
         </div>
         <ul id="file-list" class="file-list"></ul>
       </div>
 
-      <div class="sidebar-section">
-        <div class="section-header"><span>Tags</span></div>
+      <!-- Tags section -->
+      <div class="sidebar-section hidden" id="section-tags">
+        <div class="section-header" id="section-header-tags">
+          <span class="section-arrow">▾</span>
+          <span>TAGS</span>
+        </div>
         <div id="tag-list" class="tag-list"></div>
       </div>
     </aside>
 
-    <!-- Main -->
+    <!-- Main workspace -->
     <main class="main">
-      <div class="toolbar">
-        <input id="search-input" type="text" placeholder="Search todos…" class="search-input" />
-        <select id="status-filter" class="select">
-          <option value="all">All</option>
-          <option value="active">Active</option>
-          <option value="done">Done</option>
-        </select>
-        <span id="todo-count" class="todo-count"></span>
-      </div>
-
-      <div id="todo-list" class="todo-list">
-        <div class="empty-state">
-          <p>Open a project vault folder to get started.</p>
-          <p class="hint">Select a folder that contains <code>.md</code> files — like a project or Obsidian vault.</p>
+      <!-- Tab bar -->
+      <div class="workspace-tabs">
+        <div class="workspace-tab active">
+          <span class="tab-check-icon">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+          </span>
+          <span id="active-tab-name">All todos</span>
+        </div>
+        <div class="workspace-tab-spacer"></div>
+        <div class="workspace-toolbar">
+          <input id="search-input" type="text" placeholder="Search todos…" class="search-input" />
+          <select id="status-filter" class="select">
+            <option value="all">All</option>
+            <option value="active">Active</option>
+            <option value="done">Done</option>
+          </select>
+          <span id="todo-count" class="todo-count"></span>
         </div>
       </div>
 
+      <!-- Todo list -->
+      <div id="todo-list" class="todo-list">
+        <div class="empty-state">
+          <div class="empty-icon">◈</div>
+          <p>Open a project vault to get started.</p>
+          <p class="hint">Select a folder containing <code>.md</code> files.</p>
+          <button id="open-vault-btn2" class="btn-primary mt-16">Open vault</button>
+        </div>
+      </div>
+
+      <!-- Add todo bar -->
       <div class="add-todo-bar">
         <select id="target-file-select" class="select target-select" disabled>
           <option value="">— select file —</option>
         </select>
         <input id="new-todo-input" type="text" placeholder="New todo… use #tag to tag it" class="new-todo-input" disabled />
         <button id="add-todo-btn" class="btn-primary" disabled>Add</button>
+      </div>
+
+      <!-- Status bar -->
+      <div class="status-bar">
+        <span id="status-vault-label" class="status-item">No vault open</span>
+        <span class="status-sep">·</span>
+        <span id="status-todo-count" class="status-item"></span>
       </div>
     </main>
   </div>

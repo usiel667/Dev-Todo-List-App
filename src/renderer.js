@@ -2,14 +2,15 @@
 
 // ── State ──────────────────────────────────────────────────────────────────
 let vaultPath = null;
-let vaultFiles = [];          // [{ name, relativePath, path, content }]
-let selectedFilePath = null;  // null = show all files
+let vaultFiles = [];
+let selectedFilePath = null;
 let activeTag = null;
 let statusFilter = 'all';
 let searchQuery = '';
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
 const openVaultBtn     = document.getElementById('open-vault-btn');
+const openVaultBtn2    = document.getElementById('open-vault-btn2');
 const vaultNameEl      = document.getElementById('vault-name');
 const fileListEl       = document.getElementById('file-list');
 const tagListEl        = document.getElementById('tag-list');
@@ -21,6 +22,40 @@ const newFileBtn       = document.getElementById('new-file-btn');
 const targetFileSelect = document.getElementById('target-file-select');
 const newTodoInput     = document.getElementById('new-todo-input');
 const addTodoBtn       = document.getElementById('add-todo-btn');
+
+const titlebarVaultEl   = document.getElementById('titlebar-vault');
+const activeTabNameEl   = document.getElementById('active-tab-name');
+const statusVaultLabel  = document.getElementById('status-vault-label');
+const statusTodoCount   = document.getElementById('status-todo-count');
+
+const ribbonFilesBtn  = document.getElementById('ribbon-files');
+const ribbonTagsBtn   = document.getElementById('ribbon-tags');
+const sectionFiles    = document.getElementById('section-files');
+const sectionTags     = document.getElementById('section-tags');
+
+// ── Ribbon panel switching ─────────────────────────────────────────────────
+ribbonFilesBtn.addEventListener('click', () => {
+  ribbonFilesBtn.classList.add('active');
+  ribbonTagsBtn.classList.remove('active');
+  sectionFiles.classList.remove('hidden');
+  sectionTags.classList.add('hidden');
+});
+
+ribbonTagsBtn.addEventListener('click', () => {
+  ribbonTagsBtn.classList.add('active');
+  ribbonFilesBtn.classList.remove('active');
+  sectionTags.classList.remove('hidden');
+  sectionFiles.classList.add('hidden');
+});
+
+// ── Sidebar section collapse ───────────────────────────────────────────────
+document.getElementById('section-header-files').addEventListener('click', () => {
+  sectionFiles.classList.toggle('collapsed');
+});
+
+document.getElementById('section-header-tags').addEventListener('click', () => {
+  sectionTags.classList.toggle('collapsed');
+});
 
 // ── Markdown helpers ───────────────────────────────────────────────────────
 const CHECKBOX_RE = /^(\s*)-\s+\[([ xX])\]\s+(.+)$/;
@@ -44,10 +79,7 @@ function parseTodos(file) {
 
 function setTodoDone(fileContent, lineIndex, done) {
   const lines = fileContent.split('\n');
-  lines[lineIndex] = lines[lineIndex].replace(
-    /\[([ xX])\]/,
-    done ? '[x]' : '[ ]'
-  );
+  lines[lineIndex] = lines[lineIndex].replace(/\[([ xX])\]/, done ? '[x]' : '[ ]');
   return lines.join('\n');
 }
 
@@ -66,8 +98,7 @@ function deleteTodoLine(fileContent, lineIndex) {
 }
 
 function appendTodo(fileContent, text) {
-  const trimmed = fileContent.trimEnd();
-  return trimmed + '\n- [ ] ' + text + '\n';
+  return fileContent.trimEnd() + '\n- [ ] ' + text + '\n';
 }
 
 // ── Vault operations ───────────────────────────────────────────────────────
@@ -75,7 +106,9 @@ async function openVault() {
   const folder = await window.vault.openVault();
   if (!folder) return;
   vaultPath = folder;
-  vaultNameEl.textContent = folder.split(/[\\/]/).pop();
+  const vaultBaseName = folder.split(/[\\/]/).pop();
+  vaultNameEl.textContent = vaultBaseName;
+  titlebarVaultEl.textContent = vaultBaseName;
   await refreshVault();
   enableUI();
 }
@@ -95,27 +128,51 @@ function enableUI() {
   addTodoBtn.disabled = false;
 }
 
+// ── Status bar ─────────────────────────────────────────────────────────────
+function updateStatusBar() {
+  if (!vaultPath) {
+    statusVaultLabel.textContent = 'No vault open';
+    statusTodoCount.textContent = '';
+    return;
+  }
+  statusVaultLabel.textContent = vaultPath.split(/[\\/]/).pop();
+  const all = vaultFiles.flatMap(parseTodos);
+  const active = all.filter(t => !t.done).length;
+  statusTodoCount.textContent = `${active} active · ${all.length} total`;
+}
+
 // ── Sidebar rendering ──────────────────────────────────────────────────────
 function renderSidebar() {
-  // File list
   const allTodos = vaultFiles.flatMap(parseTodos);
 
+  // File list
   fileListEl.innerHTML = '';
-  // "All files" entry
+
   const allLi = document.createElement('li');
   const allCount = allTodos.filter(t => !t.done).length;
-  allLi.innerHTML = `<span>All files</span><span class="todo-badge">${allCount}</span>`;
+  allLi.innerHTML = `
+    <span class="file-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/></svg></span>
+    <span class="file-label">All files</span>
+    <span class="todo-badge">${allCount}</span>`;
   allLi.classList.toggle('active', selectedFilePath === null);
-  allLi.addEventListener('click', () => { selectedFilePath = null; renderSidebar(); renderTodos(); });
+  allLi.addEventListener('click', () => { selectedFilePath = null; activeTabNameEl.textContent = 'All todos'; renderSidebar(); renderTodos(); });
   fileListEl.appendChild(allLi);
 
   for (const file of vaultFiles) {
     const count = parseTodos(file).filter(t => !t.done).length;
     const li = document.createElement('li');
     li.title = file.relativePath;
-    li.innerHTML = `<span>${file.name}</span><span class="todo-badge">${count}</span>`;
+    li.innerHTML = `
+      <span class="file-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
+      <span class="file-label">${escHtml(file.name)}</span>
+      <span class="todo-badge">${count}</span>`;
     li.classList.toggle('active', file.path === selectedFilePath);
-    li.addEventListener('click', () => { selectedFilePath = file.path; renderSidebar(); renderTodos(); });
+    li.addEventListener('click', () => {
+      selectedFilePath = file.path;
+      activeTabNameEl.textContent = file.name;
+      renderSidebar();
+      renderTodos();
+    });
     fileListEl.appendChild(li);
   }
 
@@ -135,25 +192,27 @@ function renderSidebar() {
   tagListEl.innerHTML = '';
   if (allTags.length === 0) {
     tagListEl.innerHTML = '<span style="font-size:11px;color:var(--text-muted)">No tags yet</span>';
-    return;
-  }
-  const clearChip = document.createElement('span');
-  clearChip.className = 'tag-chip' + (activeTag === null ? ' active' : '');
-  clearChip.textContent = 'All';
-  clearChip.addEventListener('click', () => { activeTag = null; renderSidebar(); renderTodos(); });
-  tagListEl.appendChild(clearChip);
+  } else {
+    const clearChip = document.createElement('span');
+    clearChip.className = 'tag-chip' + (activeTag === null ? ' active' : '');
+    clearChip.textContent = 'All';
+    clearChip.addEventListener('click', () => { activeTag = null; renderSidebar(); renderTodos(); });
+    tagListEl.appendChild(clearChip);
 
-  for (const tag of allTags) {
-    const chip = document.createElement('span');
-    chip.className = 'tag-chip' + (activeTag === tag ? ' active' : '');
-    chip.textContent = '#' + tag;
-    chip.addEventListener('click', () => { activeTag = tag; renderSidebar(); renderTodos(); });
-    tagListEl.appendChild(chip);
+    for (const tag of allTags) {
+      const chip = document.createElement('span');
+      chip.className = 'tag-chip' + (activeTag === tag ? ' active' : '');
+      chip.textContent = '#' + tag;
+      chip.addEventListener('click', () => { activeTag = tag; renderSidebar(); renderTodos(); });
+      tagListEl.appendChild(chip);
+    }
   }
 }
 
 // ── Todo rendering ─────────────────────────────────────────────────────────
 function renderTodos() {
+  updateStatusBar();
+
   if (vaultFiles.length === 0) {
     todoListEl.innerHTML = '<div class="empty-state"><p>No <code>.md</code> files found in this vault.</p></div>';
     todoCountEl.textContent = '';
@@ -165,14 +224,11 @@ function renderTodos() {
     : vaultFiles;
 
   const q = searchQuery.toLowerCase();
-
-  let total = 0;
   let shown = 0;
   let html = '';
 
   for (const file of filesToShow) {
     const todos = parseTodos(file).filter(todo => {
-      total++;
       if (statusFilter === 'active' && todo.done) return false;
       if (statusFilter === 'done' && !todo.done) return false;
       if (activeTag && !todo.tags.includes(activeTag)) return false;
@@ -272,10 +328,7 @@ function startEditTodo(item, filePath, lineIndex) {
     if (newText && newText !== currentText) {
       const file = vaultFiles.find(f => f.path === filePath);
       if (file) {
-        // Preserve tags from the original line but replace plain text portion
         const todo = parseTodos(file).find(t => t.lineIndex === lineIndex);
-        const existingTagStr = todo ? todo.tags.map(t => ' #' + t).join('') : '';
-        const newTagStr = (newText.match(/#[\w-]+/g) || []).map(t => ' ' + t).join('');
         const plainText = newText.replace(/#[\w-]+/g, '').trim();
         const allTags = [
           ...new Set([
@@ -341,6 +394,7 @@ function escHtml(str) {
 
 // ── Event listeners ────────────────────────────────────────────────────────
 openVaultBtn.addEventListener('click', openVault);
+if (openVaultBtn2) openVaultBtn2.addEventListener('click', openVault);
 newFileBtn.addEventListener('click', createNewFile);
 addTodoBtn.addEventListener('click', addTodo);
 newTodoInput.addEventListener('keydown', e => { if (e.key === 'Enter') addTodo(); });

@@ -10,12 +10,13 @@ function createWindow() {
     height: 800,
     minWidth: 900,
     minHeight: 600,
+    frame: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false
     },
-    backgroundColor: '#0d1117',
+    backgroundColor: '#16161e',
     title: 'Dev Todo'
   });
 
