@@ -32,20 +32,33 @@ const ribbonFilesBtn  = document.getElementById('ribbon-files');
 const ribbonTagsBtn   = document.getElementById('ribbon-tags');
 const sectionFiles    = document.getElementById('section-files');
 const sectionTags     = document.getElementById('section-tags');
+const sidebarEl       = document.querySelector('.sidebar');
 
 // ── Ribbon panel switching ─────────────────────────────────────────────────
+let currentPanel = 'files'; // 'files' | 'tags' | null (collapsed)
+
+function setSidebarPanel(panel) {
+  currentPanel = panel;
+  if (panel === null) {
+    sidebarEl.classList.add('collapsed');
+    ribbonFilesBtn.classList.remove('active');
+    ribbonTagsBtn.classList.remove('active');
+    return;
+  }
+  sidebarEl.classList.remove('collapsed');
+  const showFiles = panel === 'files';
+  ribbonFilesBtn.classList.toggle('active', showFiles);
+  ribbonTagsBtn.classList.toggle('active', !showFiles);
+  sectionFiles.classList.toggle('hidden', !showFiles);
+  sectionTags.classList.toggle('hidden', showFiles);
+}
+
 ribbonFilesBtn.addEventListener('click', () => {
-  ribbonFilesBtn.classList.add('active');
-  ribbonTagsBtn.classList.remove('active');
-  sectionFiles.classList.remove('hidden');
-  sectionTags.classList.add('hidden');
+  setSidebarPanel(currentPanel === 'files' && !sidebarEl.classList.contains('collapsed') ? null : 'files');
 });
 
 ribbonTagsBtn.addEventListener('click', () => {
-  ribbonTagsBtn.classList.add('active');
-  ribbonFilesBtn.classList.remove('active');
-  sectionTags.classList.remove('hidden');
-  sectionFiles.classList.add('hidden');
+  setSidebarPanel(currentPanel === 'tags' && !sidebarEl.classList.contains('collapsed') ? null : 'tags');
 });
 
 // ── Sidebar section collapse ───────────────────────────────────────────────
