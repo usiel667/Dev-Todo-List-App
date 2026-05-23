@@ -1,0 +1,83 @@
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const path = require('path');
+const fs = require('fs');
+
+let mainWindow;
+
+function createWindow() {
+  mainWindow = new BrowserWindow({
+    width: 1280,
+    height: 800,
+    minWidth: 900,
+    minHeight: 600,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    },
+    backgroundColor: '#0d1117',
+    title: 'Dev Todo'
+  });
+
+  mainWindow.loadFile('src/index.html');
+}
+
+app.whenReady().then(createWindow);
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+
+ipcMain.handle('open-vault', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory'],
+    title: 'Select Project Vault Folder'
+  });
+  return result.canceled ? null : result.filePaths[0];
+});
+
+ipcMain.handle('read-vault', async (_, folderPath) => {
+  try {
+    const files = [];
+    function scanDir(dir) {
+      const items = fs.readdirSync(dir, { withFileTypes: true });
+      for (const item of items) {
+        if (item.name.startsWith('.')) continue;
+        const full = path.join(dir, item.name);
+        if (item.isDirectory()) {
+          scanDir(full);
+        } else if (item.isFile() && item.name.endsWith('.md')) {
+          files.push({
+            name: item.name,
+            relativePath: path.relative(folderPath, full),
+            path: full,
+            content: fs.readFileSync(full, 'utf-8')
+          });
+        }
+      }
+    }
+    scanDir(folderPath);
+    return files;
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('write-file', async (_, filePath, content) => {
+  try {
+    fs.writeFileSync(filePath, content, 'utf-8');
+    return { success: true };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('create-file', async (_, folderPath, fileName) => {
+  try {
+    const safeName = fileName.endsWith('.md') ? fileName : fileName + '.md';
+    const filePath = path.join(folderPath, safeName);
+    const title = safeName.replace('.md', '');
+    fs.writeFileSync(filePath, `# ${title}\n\n`, 'utf-8');
+    return { success: true, path: filePath, name: safeName, relativePath: safeName };
+  } catch (err) {
+    return { error: err.message };
+  }
+});

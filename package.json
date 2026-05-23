@@ -1,0 +1,13 @@
+{
+  "name": "dev-todo-list-app",
+  "version": "1.0.0",
+  "description": "Electron todo app with markdown project vault integration",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --enable-logging"
+  },
+  "devDependencies": {
+    "electron": "^28.0.0"
+  }
+}

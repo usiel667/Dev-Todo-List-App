@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline';" />
+  <title>Dev Todo</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-top">
+        <div class="app-title">Dev Todo</div>
+        <button id="open-vault-btn" class="btn-primary">Open Vault</button>
+        <div id="vault-name" class="vault-name">No vault selected</div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="section-header">
+          <span>Files</span>
+          <button id="new-file-btn" class="btn-icon" title="New file" disabled>+</button>
+        </div>
+        <ul id="file-list" class="file-list"></ul>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="section-header"><span>Tags</span></div>
+        <div id="tag-list" class="tag-list"></div>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="main">
+      <div class="toolbar">
+        <input id="search-input" type="text" placeholder="Search todos…" class="search-input" />
+        <select id="status-filter" class="select">
+          <option value="all">All</option>
+          <option value="active">Active</option>
+          <option value="done">Done</option>
+        </select>
+        <span id="todo-count" class="todo-count"></span>
+      </div>
+
+      <div id="todo-list" class="todo-list">
+        <div class="empty-state">
+          <p>Open a project vault folder to get started.</p>
+          <p class="hint">Select a folder that contains <code>.md</code> files — like a project or Obsidian vault.</p>
+        </div>
+      </div>
+
+      <div class="add-todo-bar">
+        <select id="target-file-select" class="select target-select" disabled>
+          <option value="">— select file —</option>
+        </select>
+        <input id="new-todo-input" type="text" placeholder="New todo… use #tag to tag it" class="new-todo-input" disabled />
+        <button id="add-todo-btn" class="btn-primary" disabled>Add</button>
+      </div>
+    </main>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
