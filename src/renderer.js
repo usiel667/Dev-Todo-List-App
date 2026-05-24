@@ -3,10 +3,66 @@
 // ── State ──────────────────────────────────────────────────────────────────
 let vaultPath = null;
 let vaultFiles = [];
-let selectedFilePath = null;
 let activeTag = null;
-let statusFilter = 'all';
+let statusFilter = 'active';
 let searchQuery = '';
+
+// ── Tabs ───────────────────────────────────────────────────────────────────
+let tabs = [{ id: 'all', filePath: null, name: 'All' }];
+let activeTabId = 'all';
+
+function getActiveFilePath() {
+  return tabs.find(t => t.id === activeTabId)?.filePath ?? null;
+}
+
+function openFileTab(file) {
+  const existing = tabs.find(t => t.filePath === file.path);
+  if (existing) {
+    activeTabId = existing.id;
+  } else {
+    const id = 'tab-' + file.path;
+    tabs.push({ id, filePath: file.path, name: stripMd(file.name) });
+    activeTabId = id;
+  }
+  renderTabs();
+  renderSidebar();
+  renderTodos();
+}
+
+function closeTab(tabId) {
+  if (tabId === 'all') return;
+  const idx = tabs.findIndex(t => t.id === tabId);
+  if (idx === -1) return;
+  tabs.splice(idx, 1);
+  if (activeTabId === tabId) activeTabId = tabs[Math.max(0, idx - 1)].id;
+  renderTabs();
+  renderSidebar();
+  renderTodos();
+}
+
+function renderTabs() {
+  const tabsEl = document.querySelector('.workspace-tabs');
+  tabsEl.innerHTML = '';
+  for (const tab of tabs) {
+    const div = document.createElement('div');
+    div.className = 'workspace-tab' + (tab.id === activeTabId ? ' active' : '');
+    div.innerHTML = `
+      <span class="tab-check-icon"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg></span>
+      <span class="tab-name">${escHtml(tab.name)}</span>
+      ${tab.id !== 'all' ? `<button class="tab-close" title="Close">×</button>` : ''}
+    `;
+    div.addEventListener('click', e => {
+      if (e.target.closest('.tab-close')) return;
+      activeTabId = tab.id;
+      renderTabs();
+      renderSidebar();
+      renderTodos();
+    });
+    const closeBtn = div.querySelector('.tab-close');
+    if (closeBtn) closeBtn.addEventListener('click', e => { e.stopPropagation(); closeTab(tab.id); });
+    tabsEl.appendChild(div);
+  }
+}
 const collapsedGroups  = new Set();
 const todoColors       = new Map(); // todo id  → color string
 const fileIconColors   = new Map(); // file path → color string
@@ -37,7 +93,6 @@ const newFileBtn       = document.getElementById('new-file-btn');
 let pendingNewTodo = null; // { filePath }
 
 const titlebarVaultEl   = document.getElementById('titlebar-vault');
-const activeTabNameEl   = document.getElementById('active-tab-name');
 const statusVaultLabel  = document.getElementById('status-vault-label');
 const statusTodoCount   = document.getElementById('status-todo-count');
 
@@ -309,6 +364,7 @@ async function refreshVault() {
   const result = await window.vault.readVault(vaultPath);
   if (result.error) { alert('Error reading vault: ' + result.error); return; }
   vaultFiles = result;
+  renderTabs();
   renderSidebar();
   renderTodos();
 }
@@ -343,8 +399,8 @@ function renderSidebar() {
     <span class="file-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/></svg></span>
     <span class="file-label">All files</span>
     <span class="todo-badge">${allCount}</span>`;
-  allLi.classList.toggle('active', selectedFilePath === null);
-  allLi.addEventListener('click', () => { selectedFilePath = null; activeTabNameEl.textContent = 'All todos'; renderSidebar(); renderTodos(); });
+  allLi.classList.toggle('active', getActiveFilePath() === null);
+  allLi.addEventListener('click', () => { activeTabId = 'all'; renderTabs(); renderSidebar(); renderTodos(); });
   fileListEl.appendChild(allLi);
 
   for (const file of vaultFiles) {
@@ -355,13 +411,8 @@ function renderSidebar() {
       <span class="file-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
       <span class="file-label">${escHtml(stripMd(file.name))}</span>
       <span class="todo-badge">${count}</span>`;
-    li.classList.toggle('active', file.path === selectedFilePath);
-    li.addEventListener('click', () => {
-      selectedFilePath = file.path;
-      activeTabNameEl.textContent = stripMd(file.name);
-      renderSidebar();
-      renderTodos();
-    });
+    li.classList.toggle('active', file.path === getActiveFilePath());
+    li.addEventListener('click', () => openFileTab(file));
     fileListEl.appendChild(li);
   }
 
@@ -397,8 +448,9 @@ function renderTodos() {
     return;
   }
 
-  const filesToShow = selectedFilePath
-    ? vaultFiles.filter(f => f.path === selectedFilePath)
+  const activeFilePath = getActiveFilePath();
+  const filesToShow = activeFilePath
+    ? vaultFiles.filter(f => f.path === activeFilePath)
     : vaultFiles;
 
   const q = searchQuery.toLowerCase();

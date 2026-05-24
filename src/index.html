@@ -18,7 +18,7 @@
         <input id="search-input" type="text" placeholder="Search…" class="search-input" />
         <select id="status-filter" class="select">
           <option value="all">All</option>
-          <option value="active">Active</option>
+          <option value="active" selected>Active</option>
           <option value="done">Done</option>
         </select>
         <span id="todo-count" class="todo-count"></span>
@@ -85,17 +85,8 @@
 
     <!-- Main workspace -->
     <main class="main">
-      <!-- Tab bar -->
-      <div class="workspace-tabs">
-        <div class="workspace-tab active">
-          <span class="tab-check-icon">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-              <polyline points="20 6 9 17 4 12"/>
-            </svg>
-          </span>
-          <span id="active-tab-name">All todos</span>
-        </div>
-      </div>
+      <!-- Tab bar (populated by JS) -->
+      <div class="workspace-tabs"></div>
 
       <!-- Todo list -->
       <div id="todo-list" class="todo-list">
