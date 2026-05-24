@@ -33,9 +33,8 @@ const searchInput      = document.getElementById('search-input');
 const statusFilterEl   = document.getElementById('status-filter');
 const todoCountEl      = document.getElementById('todo-count');
 const newFileBtn       = document.getElementById('new-file-btn');
-const targetFileSelect = document.getElementById('target-file-select');
-const newTodoInput     = document.getElementById('new-todo-input');
-const addTodoBtn       = document.getElementById('add-todo-btn');
+
+let pendingNewTodo = null; // { filePath }
 
 const titlebarVaultEl   = document.getElementById('titlebar-vault');
 const activeTabNameEl   = document.getElementById('active-tab-name');
@@ -71,8 +70,8 @@ function showDropdown(anchorEl, mode, ctx) {
     dropdownSwatchesEl.appendChild(btn);
   }
 
-  // Section list — only for todo mode
-  if (mode === 'todo') {
+  // Section list — for todo mode and new-section mode
+  if (mode === 'todo' || mode === 'new-section') {
     dropdownSectionsEl.style.display = '';
     dropdownSectionList.innerHTML = '';
     const file = vaultFiles.find(f => f.path === ctx.filePath);
@@ -86,11 +85,21 @@ function showDropdown(anchorEl, mode, ctx) {
         btn.textContent = sec.title;
         btn.addEventListener('click', async () => {
           hideDropdown();
-          await moveTodoToSection(ctx.filePath, ctx.lineIndex, sec);
+          if (mode === 'new-section' && pendingNewTodo) {
+            // Set the target section then re-render and re-focus input
+            pendingNewTodo.targetSection = sec;
+            renderTodos();
+            const input = todoListEl.querySelector('.new-todo-inline');
+            if (input) { if (pendingNewTodo.savedText) input.value = pendingNewTodo.savedText; input.focus(); }
+          } else {
+            await moveTodoToSection(ctx.filePath, ctx.lineIndex, sec);
+          }
         });
         dropdownSectionList.appendChild(btn);
       }
     }
+    // Hide color swatches for new-section mode
+    if (mode === 'new-section') dropdownSwatchesEl.parentElement.style.display = 'none';
   } else {
     dropdownSectionsEl.style.display = 'none';
   }
@@ -110,6 +119,7 @@ function showDropdown(anchorEl, mode, ctx) {
 function hideDropdown() {
   dropdownEl.style.display = 'none';
   dropdownContext = null;
+  dropdownSwatchesEl.parentElement.style.display = ''; // restore if hidden
 }
 
 document.addEventListener('click', e => {
@@ -305,9 +315,6 @@ async function refreshVault() {
 
 function enableUI() {
   newFileBtn.disabled = false;
-  targetFileSelect.disabled = false;
-  newTodoInput.disabled = false;
-  addTodoBtn.disabled = false;
 }
 
 // ── Status bar ─────────────────────────────────────────────────────────────
@@ -357,17 +364,6 @@ function renderSidebar() {
     });
     fileListEl.appendChild(li);
   }
-
-  // Target file select
-  const prev = targetFileSelect.value;
-  targetFileSelect.innerHTML = '<option value="">— select file —</option>';
-  for (const file of vaultFiles) {
-    const opt = document.createElement('option');
-    opt.value = file.path;
-    opt.textContent = file.name;
-    targetFileSelect.appendChild(opt);
-  }
-  if (prev && vaultFiles.some(f => f.path === prev)) targetFileSelect.value = prev;
 
   // Tags
   const allTags = [...new Set(allTodos.flatMap(t => t.tags))].sort();
@@ -431,6 +427,9 @@ function renderTodos() {
       <span class="group-icon" data-file="${escHtml(file.path)}" style="color:${iconColor}" title="Change color">◈</span>
       <span class="group-name">${escHtml(file.relativePath)}</span>
       <span class="group-count">${todos.length}</span>
+      <button class="group-add-btn" data-file="${escHtml(file.path)}" title="Add todo">
+        <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>
     </div>`;
     html += `<div class="file-group-todos${isCollapsed ? ' hidden' : ''}">`;
 
@@ -457,6 +456,19 @@ function renderTodos() {
         </div>`;
     }
 
+    if (pendingNewTodo && pendingNewTodo.filePath === file.path) {
+      html += `
+        <div class="todo-item new-todo-row">
+          <input type="checkbox" class="todo-checkbox" disabled />
+          <div class="todo-body">
+            <input type="text" class="todo-text-edit new-todo-inline" placeholder="New todo… Enter to save · Esc to cancel" />
+          </div>
+          <div class="todo-actions todo-actions-visible">
+            <button class="btn-icon new-todo-more-btn" data-file="${escHtml(file.path)}" title="Choose section">⋯</button>
+          </div>
+        </div>`;
+    }
+
     html += '</div></div>';
   }
 
@@ -472,15 +484,26 @@ function renderTodos() {
 
 function attachTodoHandlers() {
   todoListEl.querySelectorAll('.file-group-header').forEach(header => {
-    // ◈ icon → color picker (doesn't collapse)
+    // ◈ icon → color picker
     header.querySelector('.group-icon').addEventListener('click', e => {
       e.stopPropagation();
       showDropdown(e.currentTarget, 'icon', { filePath: e.currentTarget.dataset.file });
     });
 
+    // + button → open inline new-todo input
+    header.querySelector('.group-add-btn').addEventListener('click', e => {
+      e.stopPropagation();
+      const filePath = e.currentTarget.dataset.file;
+      collapsedGroups.delete(filePath); // expand if collapsed
+      pendingNewTodo = { filePath };
+      renderTodos();
+      const input = todoListEl.querySelector('.new-todo-inline');
+      if (input) input.focus();
+    });
+
     // rest of header → collapse toggle
     header.addEventListener('click', e => {
-      if (e.target.closest('.group-icon')) return;
+      if (e.target.closest('.group-icon') || e.target.closest('.group-add-btn')) return;
       const filePath = header.dataset.file;
       const todosEl = header.nextElementSibling;
       const arrow = header.querySelector('.group-arrow');
@@ -496,7 +519,55 @@ function attachTodoHandlers() {
     });
   });
 
-  todoListEl.querySelectorAll('.todo-item').forEach(item => {
+  // Inline new-todo input
+  const inlineInput = todoListEl.querySelector('.new-todo-inline');
+  if (inlineInput) {
+    const commitNewTodo = async () => {
+      if (!pendingNewTodo) return;
+      const text = inlineInput.value.trim();
+      if (text) {
+        const file = vaultFiles.find(f => f.path === pendingNewTodo.filePath);
+        if (file) {
+          if (pendingNewTodo.targetSection) {
+            file.content = appendTodo(file.content, text); // write first so line indices are valid
+            await save(file);
+            // reload content then move to chosen section
+            const fresh = vaultFiles.find(f => f.path === pendingNewTodo.filePath);
+            const todos = parseTodos(fresh);
+            const newTodo = todos[todos.length - 1]; // last appended
+            if (newTodo) await moveTodoToSection(fresh.path, newTodo.lineIndex, pendingNewTodo.targetSection);
+          } else {
+            file.content = appendTodo(file.content, text);
+            await save(file);
+          }
+        }
+      }
+      pendingNewTodo = null;
+      renderSidebar();
+      renderTodos();
+    };
+    inlineInput.addEventListener('keydown', async e => {
+      if (e.key === 'Enter') { e.preventDefault(); await commitNewTodo(); }
+      if (e.key === 'Escape') { pendingNewTodo = null; renderTodos(); }
+    });
+    inlineInput.addEventListener('blur', () => {
+      // Delay so ⋯ button clicks register before blur fires
+      setTimeout(async () => { if (pendingNewTodo) await commitNewTodo(); }, 200);
+    });
+
+    // ⋯ on the new-todo row → section picker only (no color)
+    const moreBtn = todoListEl.querySelector('.new-todo-more-btn');
+    if (moreBtn) {
+      moreBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        if (pendingNewTodo) pendingNewTodo.savedText = inlineInput.value;
+        showDropdown(e.currentTarget, 'new-section', { filePath: moreBtn.dataset.file });
+      });
+    }
+  }
+
+  // Regular todo items (skip the new-todo-row)
+  todoListEl.querySelectorAll('.todo-item:not(.new-todo-row)').forEach(item => {
     const filePath = item.dataset.file;
     const lineIndex = parseInt(item.dataset.line, 10);
 
@@ -584,21 +655,6 @@ function startEditTodo(item, filePath, lineIndex) {
   });
 }
 
-async function addTodo() {
-  const text = newTodoInput.value.trim();
-  const filePath = targetFileSelect.value;
-  if (!text || !filePath) return;
-
-  const file = vaultFiles.find(f => f.path === filePath);
-  if (!file) return;
-
-  file.content = appendTodo(file.content, text);
-  await save(file);
-  newTodoInput.value = '';
-  renderSidebar();
-  renderTodos();
-}
-
 async function save(file) {
   const result = await window.vault.writeFile(file.path, file.content);
   if (result.error) alert('Save error: ' + result.error);
@@ -640,7 +696,5 @@ function renderTodoText(text) {
 openVaultBtn.addEventListener('click', openVault);
 if (openVaultBtn2) openVaultBtn2.addEventListener('click', openVault);
 newFileBtn.addEventListener('click', createNewFile);
-addTodoBtn.addEventListener('click', addTodo);
-newTodoInput.addEventListener('keydown', e => { if (e.key === 'Enter') addTodo(); });
 searchInput.addEventListener('input', e => { searchQuery = e.target.value; renderTodos(); });
 statusFilterEl.addEventListener('change', e => { statusFilter = e.target.value; renderTodos(); });
