@@ -14,6 +14,15 @@
       <span class="titlebar-icon">◈</span>
       <span class="titlebar-title">Dev Todo</span>
       <span id="titlebar-vault" class="titlebar-vault"></span>
+      <div class="titlebar-controls">
+        <input id="search-input" type="text" placeholder="Search…" class="search-input" />
+        <select id="status-filter" class="select">
+          <option value="all">All</option>
+          <option value="active">Active</option>
+          <option value="done">Done</option>
+        </select>
+        <span id="todo-count" class="todo-count"></span>
+      </div>
     </div>
   </div>
 
@@ -85,16 +94,6 @@
             </svg>
           </span>
           <span id="active-tab-name">All todos</span>
-        </div>
-        <div class="workspace-tab-spacer"></div>
-        <div class="workspace-toolbar">
-          <input id="search-input" type="text" placeholder="Search todos…" class="search-input" />
-          <select id="status-filter" class="select">
-            <option value="all">All</option>
-            <option value="active">Active</option>
-            <option value="done">Done</option>
-          </select>
-          <span id="todo-count" class="todo-count"></span>
         </div>
       </div>
 

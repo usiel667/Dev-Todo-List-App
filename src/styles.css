@@ -101,6 +101,37 @@ body {
   margin-right: 6px;
 }
 
+.titlebar-controls {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-left: auto;
+  -webkit-app-region: no-drag;
+}
+
+.titlebar-controls .search-input {
+  width: 150px;
+  padding: 4px 9px;
+  font-size: 12px;
+}
+
+.titlebar-controls .search-input:focus {
+  width: 190px;
+}
+
+.titlebar-controls .select {
+  padding: 4px 7px;
+  font-size: 12px;
+}
+
+.titlebar-controls .todo-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  min-width: 50px;
+  text-align: right;
+}
+
 /* ── App shell ─────────────────────────────── */
 .app {
   display: flex;
@@ -414,19 +445,7 @@ body {
   align-items: center;
 }
 
-.workspace-tab-spacer {
-  flex: 1;
-}
-
-.workspace-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 12px;
-}
-
 .search-input {
-  width: 175px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -440,7 +459,6 @@ body {
 
 .search-input:focus {
   border-color: var(--blue);
-  width: 215px;
 }
 
 .search-input::placeholder {
