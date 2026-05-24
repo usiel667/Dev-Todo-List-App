@@ -622,6 +622,18 @@ body {
   display: none;
 }
 
+.section-sub-header {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-dim);
+  padding: 10px 2px 4px;
+  margin-top: 2px;
+  border-bottom: 1px solid var(--border-dim);
+  margin-bottom: 5px;
+}
+
 /* Todo items */
 .todo-item {
   display: flex;

@@ -353,12 +353,12 @@ function renderSidebar() {
     li.title = file.relativePath;
     li.innerHTML = `
       <span class="file-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
-      <span class="file-label">${escHtml(file.name)}</span>
+      <span class="file-label">${escHtml(stripMd(file.name))}</span>
       <span class="todo-badge">${count}</span>`;
     li.classList.toggle('active', file.path === selectedFilePath);
     li.addEventListener('click', () => {
       selectedFilePath = file.path;
-      activeTabNameEl.textContent = file.name;
+      activeTabNameEl.textContent = stripMd(file.name);
       renderSidebar();
       renderTodos();
     });
@@ -425,7 +425,7 @@ function renderTodos() {
         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
       </span>
       <span class="group-icon" data-file="${escHtml(file.path)}" style="color:${iconColor}" title="Change color">◈</span>
-      <span class="group-name">${escHtml(file.relativePath)}</span>
+      <span class="group-name">${escHtml(stripMd(file.relativePath))}</span>
       <span class="group-count">${todos.length}</span>
       <button class="group-add-btn" data-file="${escHtml(file.path)}" title="Add todo">
         <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -433,7 +433,16 @@ function renderTodos() {
     </div>`;
     html += `<div class="file-group-todos${isCollapsed ? ' hidden' : ''}">`;
 
+    let currentSection = null;
     for (const todo of todos) {
+      const section = getTodoSectionTitle(todo.lineIndex, file.content);
+      if (section !== currentSection) {
+        currentSection = section;
+        if (section) {
+          html += `<div class="section-sub-header">${escHtml(section)}</div>`;
+        }
+      }
+
       const textNoTags = todo.text.replace(/#[\w-]+/g, '').trim();
       const tagsHtml = todo.tags.map(t =>
         `<span class="todo-tag">#${escHtml(t)}</span>`
@@ -672,6 +681,20 @@ async function createNewFile() {
 }
 
 // ── Utility ────────────────────────────────────────────────────────────────
+function stripMd(name) {
+  return name.replace(/\.md$/i, '');
+}
+
+function getTodoSectionTitle(lineIndex, fileContent) {
+  const lines = fileContent.split('\n');
+  let section = null;
+  for (let i = 0; i < lineIndex; i++) {
+    const m = lines[i].match(/^#{1,6}\s+(.+)$/);
+    if (m) section = m[1].trim();
+  }
+  return section;
+}
+
 function escHtml(str) {
   return String(str)
     .replace(/&/g, '&amp;')
