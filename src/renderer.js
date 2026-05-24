@@ -7,7 +7,20 @@ let selectedFilePath = null;
 let activeTag = null;
 let statusFilter = 'all';
 let searchQuery = '';
-const collapsedGroups = new Set();
+const collapsedGroups  = new Set();
+const todoColors       = new Map(); // todo id  → color string
+const fileIconColors   = new Map(); // file path → color string
+
+const COLORS = [
+  { label: 'Default', value: null },
+  { label: 'Red',     value: '#f7768e' },
+  { label: 'Orange',  value: '#ff9e64' },
+  { label: 'Yellow',  value: '#e0af68' },
+  { label: 'Green',   value: '#9ece6a' },
+  { label: 'Teal',    value: '#73daca' },
+  { label: 'Blue',    value: '#7aa2f7' },
+  { label: 'Purple',  value: '#bb9af7' },
+];
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
 const openVaultBtn     = document.getElementById('open-vault-btn');
@@ -28,6 +41,133 @@ const titlebarVaultEl   = document.getElementById('titlebar-vault');
 const activeTabNameEl   = document.getElementById('active-tab-name');
 const statusVaultLabel  = document.getElementById('status-vault-label');
 const statusTodoCount   = document.getElementById('status-todo-count');
+
+const dropdownEl          = document.getElementById('todo-dropdown');
+const dropdownSwatchesEl  = document.getElementById('dropdown-swatches');
+const dropdownSectionsEl  = document.getElementById('dropdown-sections');
+const dropdownSectionList = document.getElementById('dropdown-section-list');
+
+let dropdownContext = null; // { mode: 'todo'|'icon', todoId?, filePath, lineIndex? }
+
+function showDropdown(anchorEl, mode, ctx) {
+  dropdownContext = { mode, ...ctx };
+
+  // Color swatches
+  dropdownSwatchesEl.innerHTML = '';
+  const currentColor = mode === 'todo' ? todoColors.get(ctx.todoId) : fileIconColors.get(ctx.filePath);
+  for (const c of COLORS) {
+    const btn = document.createElement('button');
+    btn.className = 'color-swatch' + (currentColor === c.value ? ' active' : '');
+    btn.title = c.label;
+    btn.textContent = '◈';
+    btn.style.color = c.value || 'var(--text-muted)';
+    if (!c.value) btn.classList.add('swatch-default');
+    btn.addEventListener('click', () => {
+      if (mode === 'todo') { if (c.value) todoColors.set(ctx.todoId, c.value); else todoColors.delete(ctx.todoId); }
+      else                 { if (c.value) fileIconColors.set(ctx.filePath, c.value); else fileIconColors.delete(ctx.filePath); }
+      hideDropdown();
+      renderTodos();
+    });
+    dropdownSwatchesEl.appendChild(btn);
+  }
+
+  // Section list — only for todo mode
+  if (mode === 'todo') {
+    dropdownSectionsEl.style.display = '';
+    dropdownSectionList.innerHTML = '';
+    const file = vaultFiles.find(f => f.path === ctx.filePath);
+    const sections = file ? getFileSections(file) : [];
+    if (sections.length === 0) {
+      dropdownSectionList.innerHTML = '<span class="dropdown-empty">No sections in this file</span>';
+    } else {
+      for (const sec of sections) {
+        const btn = document.createElement('button');
+        btn.className = 'dropdown-section-item';
+        btn.textContent = sec.title;
+        btn.addEventListener('click', async () => {
+          hideDropdown();
+          await moveTodoToSection(ctx.filePath, ctx.lineIndex, sec);
+        });
+        dropdownSectionList.appendChild(btn);
+      }
+    }
+  } else {
+    dropdownSectionsEl.style.display = 'none';
+  }
+
+  // Position near anchor
+  dropdownEl.style.display = 'block';
+  const r = anchorEl.getBoundingClientRect();
+  const ddW = 188;
+  let left = r.right - ddW;
+  let top  = r.bottom + 4;
+  if (left < 8) left = 8;
+  if (top + dropdownEl.offsetHeight > window.innerHeight - 8) top = r.top - dropdownEl.offsetHeight - 4;
+  dropdownEl.style.left = left + 'px';
+  dropdownEl.style.top  = top  + 'px';
+}
+
+function hideDropdown() {
+  dropdownEl.style.display = 'none';
+  dropdownContext = null;
+}
+
+document.addEventListener('click', e => {
+  if (dropdownEl.style.display === 'none') return;
+  if (!dropdownEl.contains(e.target) && !e.target.closest('.more-btn') && !e.target.closest('.group-icon')) hideDropdown();
+});
+
+// ── Section helpers ────────────────────────────────────────────────────────
+function getFileSections(file) {
+  const lines = file.content.split('\n');
+  const allHeadings = lines.flatMap((line, i) => {
+    const m = line.match(/^(#{1,6})\s+(.+)$/);
+    return m ? [{ level: m[1].length, title: m[2].trim(), lineIndex: i }] : [];
+  });
+
+  const parentRe = /^(todo|checklist)$/i;
+  const result = [];
+
+  for (let i = 0; i < allHeadings.length; i++) {
+    const h = allHeadings[i];
+    if (!parentRe.test(h.title)) continue;
+    result.push(h); // include the TODO / Checklist heading itself
+    for (let j = i + 1; j < allHeadings.length; j++) {
+      if (allHeadings[j].level <= h.level) break;
+      result.push(allHeadings[j]);
+    }
+  }
+
+  return result;
+}
+
+async function moveTodoToSection(filePath, todoLineIndex, targetSection) {
+  const file = vaultFiles.find(f => f.path === filePath);
+  if (!file) return;
+  const lines = file.content.split('\n');
+  const todoLine = lines[todoLineIndex];
+
+  let sectionEnd = lines.length;
+  for (let i = targetSection.lineIndex + 1; i < lines.length; i++) {
+    const m = lines[i].match(/^(#{1,6})\s/);
+    if (m && m[1].length <= targetSection.level) { sectionEnd = i; break; }
+  }
+  let insertAt = sectionEnd;
+  while (insertAt > targetSection.lineIndex + 1 && lines[insertAt - 1].trim() === '') insertAt--;
+
+  if (todoLineIndex < insertAt) {
+    lines.splice(todoLineIndex, 1);
+    lines.splice(insertAt - 1, 0, todoLine);
+  } else {
+    lines.splice(insertAt, 0, todoLine);
+    lines.splice(todoLineIndex + 1, 1);
+  }
+
+  file.content = lines.join('\n');
+  await save(file);
+  renderSidebar();
+  renderTodos();
+}
 
 const ribbonFilesBtn  = document.getElementById('ribbon-files');
 const ribbonTagsBtn   = document.getElementById('ribbon-tags');
@@ -283,10 +423,12 @@ function renderTodos() {
 
     const isCollapsed = collapsedGroups.has(file.path);
     html += `<div class="file-group" data-file="${escHtml(file.path)}">`;
+    const iconColor = fileIconColors.get(file.path) || 'var(--purple)';
     html += `<div class="file-group-header" data-file="${escHtml(file.path)}">
       <span class="group-arrow${isCollapsed ? ' collapsed' : ''}">
         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
       </span>
+      <span class="group-icon" data-file="${escHtml(file.path)}" style="color:${iconColor}" title="Change color">◈</span>
       <span class="group-name">${escHtml(file.relativePath)}</span>
       <span class="group-count">${todos.length}</span>
     </div>`;
@@ -299,8 +441,9 @@ function renderTodos() {
       ).join('');
       const textHtml = renderTodoText(textNoTags);
 
+      const todoColor = todoColors.get(todo.id);
       html += `
-        <div class="todo-item${todo.done ? ' done' : ''}" data-id="${escHtml(todo.id)}" data-file="${escHtml(todo.filePath)}" data-line="${todo.lineIndex}">
+        <div class="todo-item${todo.done ? ' done' : ''}" data-id="${escHtml(todo.id)}" data-file="${escHtml(todo.filePath)}" data-line="${todo.lineIndex}" style="${todoColor ? `border-left-color:${todoColor}` : ''}">
           <input type="checkbox" class="todo-checkbox" ${todo.done ? 'checked' : ''} />
           <div class="todo-body">
             <div class="todo-text">${textHtml}</div>
@@ -308,6 +451,7 @@ function renderTodos() {
           </div>
           <div class="todo-actions">
             <button class="btn-icon edit-btn" title="Edit">✎</button>
+            <button class="btn-icon more-btn" title="Color / Move">⋯</button>
             <button class="btn-icon danger delete-btn" title="Delete">✕</button>
           </div>
         </div>`;
@@ -328,7 +472,15 @@ function renderTodos() {
 
 function attachTodoHandlers() {
   todoListEl.querySelectorAll('.file-group-header').forEach(header => {
-    header.addEventListener('click', () => {
+    // ◈ icon → color picker (doesn't collapse)
+    header.querySelector('.group-icon').addEventListener('click', e => {
+      e.stopPropagation();
+      showDropdown(e.currentTarget, 'icon', { filePath: e.currentTarget.dataset.file });
+    });
+
+    // rest of header → collapse toggle
+    header.addEventListener('click', e => {
+      if (e.target.closest('.group-icon')) return;
       const filePath = header.dataset.file;
       const todosEl = header.nextElementSibling;
       const arrow = header.querySelector('.group-arrow');
@@ -354,6 +506,11 @@ function attachTodoHandlers() {
 
     item.querySelector('.edit-btn').addEventListener('click', () => {
       startEditTodo(item, filePath, lineIndex);
+    });
+
+    item.querySelector('.more-btn').addEventListener('click', e => {
+      e.stopPropagation();
+      showDropdown(e.currentTarget, 'todo', { todoId: item.dataset.id, filePath, lineIndex });
     });
 
     item.querySelector('.delete-btn').addEventListener('click', async () => {
