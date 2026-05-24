@@ -588,13 +588,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  opacity: 0;
-  transition: opacity 0.12s, color 0.12s, background 0.12s;
+  transition: color 0.12s, background 0.12s;
   flex-shrink: 0;
-}
-
-.file-group-header:hover .group-add-btn {
-  opacity: 1;
 }
 
 .group-add-btn:hover {
