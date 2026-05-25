@@ -9,8 +9,8 @@ A central index for all project documentation. Click any link to open the note d
 ### In Progress
 - [x] Fix color / move dropdown not showing menu when clicked — see [[Bug_Fixes]]
 - [x] Fix section sub-headers (In Progress, Before Production) not collapsing — see [[Bug_Fixes]]
-- [ ] Add undo feature for accidental edits / deletions in markdown files
 - [ ] New note button not working — see [[Bug_Fixes]]
+- [ ] Add undo feature for accidental edits / deletions in markdown files
 
 ### Before Production
 - [ ] Add window minimize / maximize / close controls to frameless titlebar
@@ -26,7 +26,7 @@ A central index for all project documentation. Click any link to open the note d
 - [ ] Dark / light theme toggle
 
 ### Obsidian Setup
-- [ ] Install Dataview plugin — auto-generate live TODO lists from all notes
+- [x] Install Dataview plugin — auto-generate live TODO lists from all notes
 - [ ] Install Tasks plugin — enhanced checkbox management
 - [ ] Install Git plugin — commit notes alongside code from inside Obsidian
 
