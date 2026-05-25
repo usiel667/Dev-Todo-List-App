@@ -1432,7 +1432,7 @@ function renderTodoText(text) {
 
 // ── Auto-refresh on window focus (picks up Obsidian / external edits) ─────
 window.addEventListener('focus', () => {
-  if (vaultPath && !pendingNewTodo && !pendingNewStep && !isSaving) refreshVault();
+  if (vaultPath && !pendingNewTodo && !pendingNewStep && !isSaving && !dragState) refreshVault();
 });
 
 // ── Event listeners ────────────────────────────────────────────────────────

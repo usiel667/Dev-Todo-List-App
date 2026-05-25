@@ -41,6 +41,39 @@ Code reviews and security/correctness audits of the Dev Todo app.
 
 ---
 
+## Audit 2 — Drag-and-Drop & Focus-Refresh Review
+
+**Date:** 2026-05-25
+**Scope:** `src/renderer.js` — drag implementation, focus-refresh guard, color key remapping
+**Status:** ✅ Complete — 1 finding fixed, remainder cleared
+
+### Findings & Fixes
+
+| # | Severity | File | Issue | Status |
+|---|----------|------|-------|--------|
+| 1 | Medium | `renderer.js:focus handler` | `refreshVault()` on window focus not guarded against an active drag — if user Alt-Tabs mid-drag, vault re-renders detach the source item and `fromLineIndex` becomes stale, risking a corrupted drop | ✅ Fixed: added `&& !dragState` to the focus guard |
+
+### Items Reviewed & Cleared
+
+| Area | Finding | Verdict |
+|------|---------|---------|
+| `cloneNode(true)` on drag source | Could copy event listeners to clone | Safe — `cloneNode` copies DOM structure and attributes only, never event listeners |
+| `onDragCancel` removes `pointerup` listener added with `{ once: true }` | `removeEventListener` might not match | Safe — capture flag is the only matching criterion; `once` doesn't affect it. Listener is removed correctly |
+| `reorderTodoBlock` color remap | Bulk-delete-then-reinsert could lose colors | Safe — old→new index formula verified for both up and down moves; edge case where `toLineIndex` is inside the moved block returns early |
+| `getTodoSectionTitle` + `getFileSections` called per item in `initDrag` | O(n × lineIndex) work | Acceptable — vault files are small; imperceptible at drag-start |
+| Pointer events without `setPointerCapture` | Events could be lost if pointer leaves window | Acceptable — desktop-only app; document-level listeners catch all pointer events within the window |
+| `moveTodoToSection` called with `fromLineIndex` from drag-start | Line index could be stale if file changed externally during drag | Mitigated by the focus-refresh guard fix (Finding 1) — vault can no longer refresh while a drag is active |
+| `dragging-active` class cleanup | Could get stuck if `onDragPointerUp` throws early | Safe — `classList.remove` is called synchronously before any `await`; no throw path before it |
+| `escHtml()` coverage on drag clone | Clone built via `cloneNode` not `innerHTML` | Safe — `cloneNode` copies existing escaped DOM; no new user content injected |
+
+### Notes
+
+- Drag implementation uses pointer events exclusively — no HTML5 DnD API surface. This eliminates the ghost-image, `dataTransfer`, and cross-origin DnD attack surface entirely.
+- The only persistent state mutated during drag is `todoColors` (via `reorderTodoBlock`/`moveTodoToSection`). Both functions perform atomic remap before saving, so a cancelled drag leaves `todoColors` untouched.
+- `todoColors` and `fileIconColors` are still not persisted to localStorage — planned for next session.
+
+---
+
 <!-- Template for new audits:
 
 ## Audit N — Description
