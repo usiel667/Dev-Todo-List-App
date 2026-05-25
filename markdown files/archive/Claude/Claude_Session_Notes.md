@@ -112,6 +112,40 @@ Key decisions and context from build sessions with Claude. Use this to resume wo
 
 ---
 
+## Session 5 — Security Audit, Drag-and-Drop, Bug Fixes
+
+**Date:** 2026-05-24 – 2026-05-25
+**Scope:** Full security/correctness audit, drag-and-drop todo reorder, create-file IPC fix
+
+**Security audit (Audit 1 — all 5 findings fixed):**
+- `create-file` IPC: `path.basename()` added to prevent path traversal (`../../.bashrc` style)
+- `moveTodoToSection`: was never calling `shiftColorKeys` — colors went stale after a move; fixed inline per-direction remapping
+- `startEditTodo`: `item.querySelector('.todo-text')` not null-checked — double-click during edit could crash; added `if (!textEl) return`
+- File group collapse handler: `header.nextElementSibling` / `header.querySelector('.group-arrow')` used without null checks; added guards
+- `save()`: `refreshVault()` on window focus could race with in-progress saves; added `isSaving` flag; focus refresh skipped while saving
+
+**create-file IPC bug fixed:**
+- Handler referenced `safeName` (undefined) instead of `baseName` — new file button always threw a ReferenceError
+- Fix: changed all `safeName` references to `baseName` in `main.js`
+
+**Drag-and-drop reorder:**
+- Implemented with **pointer events** (not HTML5 DnD) for full control
+- `initDrag` creates a `position:fixed` clone of the todo item; only Y is updated during `pointermove` — X is locked to the column
+- `onDragPointerMove` is RAF-throttled via `dragRafId`; stores latest event in `lastMoveEvent` to always use the most recent position
+- Hit-testing uses **frozen snapshots** of item positions taken at drag-start — animating margin never feeds back into hit-testing (eliminates jitter)
+- Threshold for switching the gap indicator is the **bottom edge** of each item (not midpoint) — gap only moves after cursor fully passes an item
+- Drops restricted to **same section** by filtering snapshots on `getTodoSectionTitle` value; cursor can't fall through to the next section
+- **Cross-section drop**: section sub-headers are snapshotted separately; hovering one highlights it blue (`.drag-section-over`); dropping calls `moveTodoToSection` which already handles line/color remapping
+- `reorderTodoBlock(filePath, fromLineIndex, toLineIndex)`: moves root todo + indented children as a block; remaps all `todoColors` keys using exact old→new index formula (verified for both up and down moves)
+- `todoListEl.classList.add('dragging-active')` during drag gives section headers a dashed outline as a hint they are droppable
+
+**Key invariants to preserve:**
+- Every drag function (`onDragPointerUp`, `onDragCancel`) must call `todoListEl.classList.remove('dragging-active')` on cleanup
+- `sectionSnapshots` are keyed by `data-section-key` format `filePath::sectionTitle` — parse with `indexOf('::')` (first occurrence)
+- `reorderTodoBlock` is a no-op if `toLineIndex` falls inside the moved block
+
+---
+
 ## Useful Context for Future Sessions
 
 - **Electron workaround:** On Node v26+, run the unzip command after `npm install` (see [[Dev_Environment_Setup]])
@@ -121,4 +155,8 @@ Key decisions and context from build sessions with Claude. Use this to resume wo
 - **GitNexus:** Run `npx gitnexus analyze` after significant refactors. Always run impact analysis before editing `attachTodoHandlers`, `renderTodos`, or any IPC handler — these are high-fan-out symbols
 - **`todoColors` keys are `filePath::lineIndex`** — any operation that inserts or deletes lines must call `shiftColorKeys(filePath, insertAt, ±1)` to keep colors on the right todos
 - **`insertStep` and `appendTodo` return `{ content, insertAt }`** — not just a string; callers must destructure to get the insertion point for `shiftColorKeys`
-- **Auto-refresh on focus** — `refreshVault()` fires on `window focus` event; skip if `pendingNewTodo` or `pendingNewStep` is set to avoid interrupting inline edits
+- **Auto-refresh on focus** — `refreshVault()` fires on `window focus` event; skip if `pendingNewTodo`, `pendingNewStep`, or `isSaving` is set to avoid interrupting inline edits or racing with a save
+- **Drag uses pointer events, not HTML5 DnD** — `pointerdown` → `initDrag`; `pointermove` / `pointerup` / `pointercancel` on `document`. Never reintroduce `dragstart` / `dragover` — HTML5 DnD can't lock the X axis
+- **Drag snapshots are frozen** — positions are captured once in `initDrag` before any animation; never call `getBoundingClientRect()` during the RAF loop for hit-testing
+- **Section boundary enforcement** — candidates filtered by `s.section === dragState.sourceSection` (from `getTodoSectionTitle`); cross-section drops go through section header hit-testing, not item hit-testing
+- **`reorderTodoBlock` color remapping** — bulk remap using old→new index formula; deletes all file keys then reinserts. Don't use `shiftColorKeys` for block moves — it only handles single-line shifts

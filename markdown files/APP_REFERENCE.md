@@ -58,6 +58,9 @@ Quick-navigation index of every major constant, state variable, function, IPC ch
 | `currentPanel` | `'files' \| 'tags' \| null` | Which ribbon panel is open |
 | `pendingNewTodo` | `object \| null` | `{ filePath, targetSection?, savedText? }` — inline new-todo state |
 | `pendingNewStep` | `object \| null` | `{ filePath, parentLineIndex }` — inline new-step state |
+| `dragState` | `object \| null` | Active drag context — `{ filePath, fromLineIndex, sourceItem, cloneEl, startMouseY, cloneStartY, currentTarget, currentInsertBefore, currentSectionTarget, snapshots, sectionSnapshots, sourceSection }` |
+| `dragRafId` | `number \| null` | `requestAnimationFrame` ID used to throttle `pointermove` during drag |
+| `lastMoveEvent` | `PointerEvent \| null` | Most-recent `pointermove` event, read inside the RAF callback |
 | `collapsedGroups` | `Set<string>` | File paths whose todo group is collapsed |
 | `collapsedSections` | `Set<string>` | Keys `"${filePath}::${sectionTitle}"` for collapsed sections |
 | `collapsedSteps` | `Set<string>` | Parent todo IDs whose steps panel is collapsed |
@@ -104,12 +107,14 @@ Quick-navigation index of every major constant, state variable, function, IPC ch
 | `getLinkedSteps(todoText)` | `(string) → Step[]` | Finds `[[wiki-link]]` in text, looks up the file, returns `## Step N` headings |
 | `getFileSections(file)` | `(file) → Section[]` | Returns headings under TODO/Checklist parents (for move-to-section dropdown) |
 | `getTodoSectionTitle(lineIndex, content)` | `(number, string) → string \| null` | Returns the last heading before a line |
-| `appendTodo(content, text)` | `(string, string) → string` | Inserts a new `- [ ] ` into the TODO section (or end of file) |
-| `insertStep(content, parentLine, text)` | `(string, number, string) → string` | Inserts `  - [ ] Step N — text` after parent and its existing steps |
+| `appendTodo(content, text)` | `(string, string) → { content, insertAt }` | Inserts a new `- [ ] ` into the TODO section (or end of file); callers must call `shiftColorKeys` with `insertAt` |
+| `insertStep(content, parentLine, text)` | `(string, number, string) → { content, insertAt }` | Inserts `  - [ ] Step N — text` after parent and its existing steps; callers must call `shiftColorKeys` with `insertAt` |
 | `setTodoDone(content, lineIndex, done)` | `(string, number, bool) → string` | Toggles `[ ]` / `[x]` on a line |
 | `setTodoText(content, lineIndex, text)` | `(string, number, string) → string` | Replaces todo text on a line |
 | `deleteTodoLine(content, lineIndex)` | `(string, number) → string` | Removes a line from file content |
-| `moveTodoToSection(filePath, lineIndex, section)` | async | Moves a todo line to a different heading |
+| `moveTodoToSection(filePath, lineIndex, section)` | async | Moves a todo line to a different heading; remaps `todoColors` keys |
+| `reorderTodoBlock(filePath, fromLineIndex, toLineIndex)` | async | Moves a root todo + its indented children to a new position within the same file; remaps all `todoColors` keys using old→new index mapping |
+| `shiftColorKeys(filePath, fromIndex, delta)` | — | Shifts all `todoColors` keys for a file by `delta` starting at `fromIndex`; call after any line insert (+1) or delete (-1) |
 
 ---
 
@@ -122,7 +127,12 @@ Quick-navigation index of every major constant, state variable, function, IPC ch
 | `renderTabs()` | Builds the `.workspace-tabs` bar; always includes the All tab and a `+` picker button |
 | `renderSidebar()` | Renders file list and tag chips |
 | `renderTodos()` | Main render: groups by file → section → tree node; builds HTML string; calls `attachTodoHandlers()` |
-| `attachTodoHandlers()` | Wires all click/change/keydown listeners after innerHTML is replaced |
+| `attachTodoHandlers()` | Wires all click/change/keydown/pointerdown listeners after innerHTML is replaced |
+| `initDrag(e, sourceItem, filePath, lineIndex)` | Starts a pointer-event drag — creates fixed clone, snapshots item + section header positions, registers `pointermove`/`pointerup`/`pointercancel` handlers |
+| `onDragPointerMove(e)` | RAF-throttled drag move — updates clone Y position, hit-tests against frozen snapshots, applies `drag-over-top`/`drag-over-bottom`/`drag-section-over` indicators |
+| `onDragPointerUp()` | Drop handler — calls `moveTodoToSection` for cross-section drops or `reorderTodoBlock` for same-section reorder |
+| `onDragCancel()` | Pointer-cancel / escape cleanup — removes clone and all drag indicators |
+| `clearDragIndicators()` | Removes `drag-over-top`, `drag-over-bottom`, and `drag-section-over` from all elements |
 | `updateStatusBar()` | Updates vault name and active/total counts in the status bar |
 | `renderRecentVaults()` | Populates `#recent-vaults-list` from localStorage |
 | `showDropdown(anchorEl, mode, ctx)` | Positions and fills the floating color/section picker |

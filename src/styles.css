@@ -657,7 +657,7 @@ body {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 10.5px;
+  font-size: 20px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.07em;
@@ -675,7 +675,7 @@ body {
 }
 
 .group-icon {
-  font-size: 13px;
+  font-size: 25px;
   flex-shrink: 0;
   cursor: pointer;
   line-height: 1;
@@ -695,6 +695,11 @@ body {
   color: var(--text-muted);
   transform: rotate(90deg);
   transition: transform 0.15s ease, color 0.12s;
+}
+
+.group-arrow svg {
+  width: 23px;
+  height: 23px;
 }
 
 .group-arrow.collapsed {
