@@ -87,11 +87,11 @@ ipcMain.handle('open-obsidian-file', async (_, vaultPath, fileName) => {
 
 ipcMain.handle('create-file', async (_, folderPath, fileName) => {
   try {
-    const safeName = fileName.endsWith('.md') ? fileName : fileName + '.md';
-    const filePath = path.join(folderPath, safeName);
-    const title = safeName.replace('.md', '');
+    const baseName = path.basename(fileName.endsWith('.md') ? fileName : fileName + '.md');
+    const filePath = path.join(folderPath, baseName);
+    const title = baseName.replace('.md', '');
     fs.writeFileSync(filePath, `# ${title}\n\n`, 'utf-8');
-    return { success: true, path: filePath, name: safeName, relativePath: safeName };
+    return { success: true, path: filePath, name: baseName, relativePath: baseName };
   } catch (err) {
     return { error: err.message };
   }

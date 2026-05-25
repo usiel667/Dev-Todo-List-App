@@ -116,6 +116,30 @@ const collapsedSteps    = new Set(); // parent todo id → steps collapsed
 const todoColors        = new Map(); // todo id  → color string
 const fileIconColors    = new Map(); // file path → color string
 
+// Shift todoColors keys when lines are inserted (+1) or deleted (-1) in a file
+function shiftColorKeys(filePath, fromIndex, delta) {
+  const prefix = filePath + '::';
+  const updates = [];
+  for (const [key, color] of todoColors) {
+    if (!key.startsWith(prefix)) continue;
+    const lineIdx = parseInt(key.slice(prefix.length), 10);
+    if (isNaN(lineIdx)) continue;
+    if (delta > 0 && lineIdx >= fromIndex) {
+      updates.push([key, prefix + (lineIdx + delta), color]);
+    } else if (delta < 0) {
+      if (lineIdx === fromIndex) {
+        updates.push([key, null, null]); // remove color for deleted line
+      } else if (lineIdx > fromIndex) {
+        updates.push([key, prefix + (lineIdx + delta), color]);
+      }
+    }
+  }
+  for (const [oldKey, newKey, color] of updates) {
+    todoColors.delete(oldKey);
+    if (newKey !== null) todoColors.set(newKey, color);
+  }
+}
+
 const COLORS = [
   { label: 'Default', value: null },
   { label: 'Red',     value: '#f7768e' },
@@ -141,6 +165,9 @@ const newFileBtn       = document.getElementById('new-file-btn');
 
 let pendingNewTodo = null; // { filePath }
 let pendingNewStep = null; // { filePath, parentLineIndex }
+let dragState = null;     // { filePath, fromLineIndex, sourceItem, cloneEl, ... }
+let dragRafId = null;
+let lastMoveEvent = null;
 
 const titlebarVaultEl   = document.getElementById('titlebar-vault');
 const statusVaultLabel  = document.getElementById('status-vault-label');
@@ -312,10 +339,29 @@ async function moveTodoToSection(filePath, todoLineIndex, targetSection) {
   let insertAt = sectionEnd;
   while (insertAt > targetSection.lineIndex + 1 && lines[insertAt - 1].trim() === '') insertAt--;
 
+  const movedColor = todoColors.get(`${filePath}::${todoLineIndex}`);
   if (todoLineIndex < insertAt) {
+    // Lines [todoLineIndex+1, insertAt-1] shift up by -1; moved line lands at insertAt-1
+    for (let i = todoLineIndex + 1; i <= insertAt - 1; i++) {
+      const c = todoColors.get(`${filePath}::${i}`);
+      todoColors.delete(`${filePath}::${i}`);
+      if (c) todoColors.set(`${filePath}::${i - 1}`, c);
+      else todoColors.delete(`${filePath}::${i - 1}`);
+    }
+    todoColors.delete(`${filePath}::${todoLineIndex}`);
+    if (movedColor) todoColors.set(`${filePath}::${insertAt - 1}`, movedColor);
     lines.splice(todoLineIndex, 1);
     lines.splice(insertAt - 1, 0, todoLine);
   } else {
+    // Lines [insertAt, todoLineIndex-1] shift down by +1; moved line lands at insertAt
+    for (let i = todoLineIndex - 1; i >= insertAt; i--) {
+      const c = todoColors.get(`${filePath}::${i}`);
+      todoColors.delete(`${filePath}::${i}`);
+      if (c) todoColors.set(`${filePath}::${i + 1}`, c);
+      else todoColors.delete(`${filePath}::${i + 1}`);
+    }
+    todoColors.delete(`${filePath}::${todoLineIndex}`);
+    if (movedColor) todoColors.set(`${filePath}::${insertAt}`, movedColor);
     lines.splice(insertAt, 0, todoLine);
     lines.splice(todoLineIndex + 1, 1);
   }
@@ -324,6 +370,193 @@ async function moveTodoToSection(filePath, todoLineIndex, targetSection) {
   await save(file);
   renderSidebar();
   renderTodos();
+}
+
+async function reorderTodoBlock(filePath, fromLineIndex, toLineIndex) {
+  if (fromLineIndex === toLineIndex) return;
+  const file = vaultFiles.find(f => f.path === filePath);
+  if (!file) return;
+
+  const lines = file.content.split('\n');
+
+  // Collect block: root todo + any immediately-following indented children
+  let blockSize = 1;
+  while (fromLineIndex + blockSize < lines.length) {
+    const m = lines[fromLineIndex + blockSize].match(CHECKBOX_RE);
+    if (m && m[1].length > 0) blockSize++;
+    else break;
+  }
+
+  // toLineIndex == fromLineIndex or within the block → no-op
+  if (toLineIndex > fromLineIndex && toLineIndex < fromLineIndex + blockSize) return;
+
+  const block = lines.slice(fromLineIndex, fromLineIndex + blockSize);
+  const newLines = [];
+
+  if (toLineIndex > fromLineIndex) {
+    for (let i = 0; i < fromLineIndex; i++) newLines.push(lines[i]);
+    for (let i = fromLineIndex + blockSize; i < toLineIndex; i++) newLines.push(lines[i]);
+    for (const l of block) newLines.push(l);
+    for (let i = toLineIndex; i < lines.length; i++) newLines.push(lines[i]);
+  } else {
+    for (let i = 0; i < toLineIndex; i++) newLines.push(lines[i]);
+    for (const l of block) newLines.push(l);
+    for (let i = toLineIndex; i < fromLineIndex; i++) newLines.push(lines[i]);
+    for (let i = fromLineIndex + blockSize; i < lines.length; i++) newLines.push(lines[i]);
+  }
+
+  // Remap color keys using the old→new index mapping
+  const prefix = filePath + '::';
+  const oldColors = new Map();
+  for (const [key, color] of todoColors) {
+    if (!key.startsWith(prefix)) continue;
+    const idx = parseInt(key.slice(prefix.length), 10);
+    if (!isNaN(idx)) oldColors.set(idx, color);
+  }
+  for (const key of [...todoColors.keys()]) {
+    if (key.startsWith(prefix)) todoColors.delete(key);
+  }
+  for (const [oldIdx, color] of oldColors) {
+    let newIdx;
+    if (toLineIndex > fromLineIndex) {
+      if (oldIdx < fromLineIndex) newIdx = oldIdx;
+      else if (oldIdx < fromLineIndex + blockSize) newIdx = toLineIndex - blockSize + (oldIdx - fromLineIndex);
+      else if (oldIdx < toLineIndex) newIdx = oldIdx - blockSize;
+      else newIdx = oldIdx;
+    } else {
+      if (oldIdx < toLineIndex) newIdx = oldIdx;
+      else if (oldIdx < fromLineIndex) newIdx = oldIdx + blockSize;
+      else if (oldIdx < fromLineIndex + blockSize) newIdx = toLineIndex + (oldIdx - fromLineIndex);
+      else newIdx = oldIdx;
+    }
+    todoColors.set(prefix + newIdx, color);
+  }
+
+  file.content = newLines.join('\n');
+  await save(file);
+  renderSidebar();
+  renderTodos();
+}
+
+// ── Pointer-event drag (Y-only, RAF-throttled) ─────────────────────────────
+function clearDragIndicators() {
+  todoListEl.querySelectorAll('.drag-over-top, .drag-over-bottom').forEach(el => {
+    el.classList.remove('drag-over-top', 'drag-over-bottom');
+  });
+}
+
+function initDrag(e, sourceItem, filePath, lineIndex) {
+  e.preventDefault();
+  const rect = sourceItem.getBoundingClientRect();
+  const clone = sourceItem.cloneNode(true);
+  clone.classList.add('drag-clone');
+  // Position clone exactly over source; only Y will change
+  clone.style.position   = 'fixed';
+  clone.style.left       = rect.left + 'px';
+  clone.style.top        = rect.top  + 'px';
+  clone.style.width      = rect.width + 'px';
+  clone.style.margin     = '0';
+  clone.style.zIndex     = '9999';
+  clone.style.pointerEvents = 'none';
+  clone.style.transition = 'none';
+  document.body.appendChild(clone);
+  sourceItem.classList.add('dragging');
+
+  dragState = {
+    filePath, fromLineIndex: lineIndex,
+    sourceItem, cloneEl: clone,
+    startMouseY: e.clientY, cloneStartY: rect.top,
+    currentTarget: null, currentInsertBefore: null
+  };
+
+  document.addEventListener('pointermove', onDragPointerMove);
+  document.addEventListener('pointerup',   onDragPointerUp,  { once: true });
+  document.addEventListener('pointercancel', onDragCancel,   { once: true });
+}
+
+function onDragPointerMove(e) {
+  if (!dragState) return;
+  lastMoveEvent = e;
+  if (dragRafId) return;
+  dragRafId = requestAnimationFrame(() => {
+    dragRafId = null;
+    if (!dragState || !lastMoveEvent) return;
+    const ev = lastMoveEvent;
+
+    // Move clone on Y axis only
+    dragState.cloneEl.style.top = (dragState.cloneStartY + (ev.clientY - dragState.startMouseY)) + 'px';
+
+    // Hit-test under cursor (hide clone so it doesn't block elementFromPoint)
+    dragState.cloneEl.style.visibility = 'hidden';
+    const el = document.elementFromPoint(ev.clientX, ev.clientY);
+    dragState.cloneEl.style.visibility = '';
+
+    let targetItem = el?.closest('.todo-item');
+    if (targetItem?.classList.contains('new-todo-row') || targetItem?.classList.contains('todo-step')) targetItem = null;
+
+    if (!targetItem || targetItem === dragState.sourceItem || targetItem.dataset.file !== dragState.filePath) {
+      clearDragIndicators();
+      dragState.currentTarget = null;
+      return;
+    }
+
+    const targetRect = targetItem.getBoundingClientRect();
+    const insertBefore = ev.clientY < targetRect.top + targetRect.height / 2;
+
+    if (targetItem !== dragState.currentTarget || insertBefore !== dragState.currentInsertBefore) {
+      clearDragIndicators();
+      dragState.currentTarget      = targetItem;
+      dragState.currentInsertBefore = insertBefore;
+      targetItem.classList.add(insertBefore ? 'drag-over-top' : 'drag-over-bottom');
+    }
+  });
+}
+
+async function onDragPointerUp() {
+  document.removeEventListener('pointermove', onDragPointerMove);
+  document.removeEventListener('pointercancel', onDragCancel);
+  if (dragRafId) { cancelAnimationFrame(dragRafId); dragRafId = null; }
+  lastMoveEvent = null;
+  if (!dragState) return;
+
+  const { sourceItem, cloneEl, currentTarget, currentInsertBefore, filePath, fromLineIndex } = dragState;
+  dragState = null;
+  cloneEl.remove();
+  sourceItem.classList.remove('dragging');
+  clearDragIndicators();
+
+  if (!currentTarget) return;
+
+  const targetLineIndex = parseInt(currentTarget.dataset.line, 10);
+  let toLineIndex;
+  if (currentInsertBefore) {
+    toLineIndex = targetLineIndex;
+  } else {
+    const targetFile = vaultFiles.find(f => f.path === filePath);
+    if (!targetFile) return;
+    const tLines = targetFile.content.split('\n');
+    toLineIndex = targetLineIndex + 1;
+    while (toLineIndex < tLines.length) {
+      const m = tLines[toLineIndex].match(CHECKBOX_RE);
+      if (m && m[1].length > 0) toLineIndex++;
+      else break;
+    }
+  }
+
+  await reorderTodoBlock(filePath, fromLineIndex, toLineIndex);
+}
+
+function onDragCancel() {
+  document.removeEventListener('pointermove', onDragPointerMove);
+  document.removeEventListener('pointerup', onDragPointerUp);
+  if (dragRafId) { cancelAnimationFrame(dragRafId); dragRafId = null; }
+  lastMoveEvent = null;
+  if (dragState) {
+    dragState.cloneEl.remove();
+    dragState.sourceItem.classList.remove('dragging');
+    clearDragIndicators();
+    dragState = null;
+  }
 }
 
 const ribbonFilesBtn  = document.getElementById('ribbon-files');
@@ -438,7 +671,7 @@ function appendTodo(fileContent, text) {
   while (insertAt > todoLineIndex + 1 && lines[insertAt - 1].trim() === '') insertAt--;
 
   lines.splice(insertAt, 0, '- [ ] ' + text);
-  return lines.join('\n');
+  return { content: lines.join('\n'), insertAt };
 }
 
 function insertStep(fileContent, parentLineIndex, stepText) {
@@ -451,7 +684,7 @@ function insertStep(fileContent, parentLineIndex, stepText) {
     else break;
   }
   lines.splice(insertAt, 0, `  - [ ] Step ${stepCount + 1} — ${stepText}`);
-  return lines.join('\n');
+  return { content: lines.join('\n'), insertAt };
 }
 
 // ── Recent vaults (localStorage) ──────────────────────────────────────────
@@ -784,6 +1017,7 @@ function attachTodoHandlers() {
       const filePath = header.dataset.file;
       const todosEl = header.nextElementSibling;
       const arrow = header.querySelector('.group-arrow');
+      if (!todosEl || !arrow) return;
       if (collapsedGroups.has(filePath)) {
         collapsedGroups.delete(filePath);
         arrow.classList.remove('collapsed');
@@ -836,7 +1070,9 @@ function attachTodoHandlers() {
       if (text) {
         const file = vaultFiles.find(f => f.path === pendingNewStep.filePath);
         if (file) {
-          file.content = insertStep(file.content, pendingNewStep.parentLineIndex, text);
+          const { content, insertAt } = insertStep(file.content, pendingNewStep.parentLineIndex, text);
+          shiftColorKeys(file.path, insertAt, 1);
+          file.content = content;
           await save(file);
         }
       }
@@ -919,7 +1155,9 @@ function attachTodoHandlers() {
         const file = vaultFiles.find(f => f.path === pendingNewTodo.filePath);
         if (file) {
           if (pendingNewTodo.targetSection) {
-            file.content = appendTodo(file.content, text); // write first so line indices are valid
+            const { content, insertAt } = appendTodo(file.content, text);
+            shiftColorKeys(file.path, insertAt, 1);
+            file.content = content;
             await save(file);
             // reload content then move to chosen section
             const fresh = vaultFiles.find(f => f.path === pendingNewTodo.filePath);
@@ -927,7 +1165,9 @@ function attachTodoHandlers() {
             const newTodo = todos[todos.length - 1]; // last appended
             if (newTodo) await moveTodoToSection(fresh.path, newTodo.lineIndex, pendingNewTodo.targetSection);
           } else {
-            file.content = appendTodo(file.content, text);
+            const { content, insertAt } = appendTodo(file.content, text);
+            shiftColorKeys(file.path, insertAt, 1);
+            file.content = content;
             await save(file);
           }
         }
@@ -984,6 +1224,12 @@ function attachTodoHandlers() {
         window.vault.openObsidianFile(vaultPath, linkEl.dataset.link);
       });
     });
+
+    item.addEventListener('pointerdown', e => {
+      if (e.button !== 0) return;
+      if (e.target.closest('button, input, a, .wiki-link, .steps-chevron')) return;
+      initDrag(e, item, filePath, lineIndex);
+    });
   });
 }
 
@@ -1016,6 +1262,7 @@ async function toggleStep(filePath, lineIndex, done, parentId) {
 async function deleteTodo(filePath, lineIndex) {
   const file = vaultFiles.find(f => f.path === filePath);
   if (!file) return;
+  shiftColorKeys(filePath, lineIndex, -1);
   file.content = deleteTodoLine(file.content, lineIndex);
   await save(file);
   renderSidebar();
@@ -1024,6 +1271,7 @@ async function deleteTodo(filePath, lineIndex) {
 
 function startEditTodo(item, filePath, lineIndex) {
   const textEl = item.querySelector('.todo-text');
+  if (!textEl) return; // already in edit mode
   const currentText = textEl.textContent;
   const input = document.createElement('input');
   input.type = 'text';
@@ -1061,9 +1309,16 @@ function startEditTodo(item, filePath, lineIndex) {
   });
 }
 
+let isSaving = false;
+
 async function save(file) {
-  const result = await window.vault.writeFile(file.path, file.content);
-  if (result.error) alert('Save error: ' + result.error);
+  isSaving = true;
+  try {
+    const result = await window.vault.writeFile(file.path, file.content);
+    if (result.error) alert('Save error: ' + result.error);
+  } finally {
+    isSaving = false;
+  }
 }
 
 // ── New file ───────────────────────────────────────────────────────────────
@@ -1111,6 +1366,11 @@ function renderTodoText(text) {
     return escHtml(part);
   }).join('');
 }
+
+// ── Auto-refresh on window focus (picks up Obsidian / external edits) ─────
+window.addEventListener('focus', () => {
+  if (vaultPath && !pendingNewTodo && !pendingNewStep && !isSaving) refreshVault();
+});
 
 // ── Event listeners ────────────────────────────────────────────────────────
 openVaultBtn.addEventListener('click', openVault);

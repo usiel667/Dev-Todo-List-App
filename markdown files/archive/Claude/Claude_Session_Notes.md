@@ -77,6 +77,41 @@ Key decisions and context from build sessions with Claude. Use this to resume wo
 
 ---
 
+## Session 4 — Bug Fixes, Debugging, Auto-Refresh
+
+**Date:** 2026-05-24
+**Scope:** Three bug fixes, DevTools-based debugging workflow, vault auto-refresh on focus
+
+**Bugs fixed:**
+
+**App resets on checkbox click (Fix 5):**
+- `electron-reload` was watching `__dirname` (entire project root) with `hardReset: true`
+- Any vault file write triggered a full Electron restart
+- Fix: scope watcher to `path.join(__dirname, 'src')` — only code changes reload the app
+- File: `main.js`
+
+**Color transfers to wrong todo after line shifts (Fix 6):**
+- `todoColors` Map is keyed by `filePath::lineIndex`
+- Inserting or deleting a line shifts all subsequent line numbers, making stored color keys point to wrong todos
+- Fix: added `shiftColorKeys(filePath, fromIndex, delta)` — updates all affected map keys whenever lines are inserted (+1) or deleted (-1)
+- Called in: `deleteTodo`, `commitStep` handler, `commitNewTodo` handler
+- `insertStep` and `appendTodo` now return `{ content, insertAt }` instead of just the content string so callers know where the shift happened
+- File: `src/renderer.js`
+
+**App doesn't reflect external edits (e.g. from Obsidian):**
+- Vault files are read once on vault open and cached in `vaultFiles[]`
+- Changes made in Obsidian or any external editor are never picked up
+- Fix: `window.addEventListener('focus', ...)` — calls `refreshVault()` when the app window regains focus, but only if a vault is open and no inline edit is in progress (`!pendingNewTodo && !pendingNewStep`)
+- File: `src/renderer.js`
+
+**Debugging workflow established:**
+- Open Electron DevTools with `Ctrl+Shift+I` inside the app window (not the terminal)
+- Use the inspector cursor (top-left of DevTools) to click an element and jump to it in the Elements panel
+- Right-click element → Copy → Copy outerHTML to get `data-id`, `class`, and `style` in one paste
+- `data-id` format is `filePath::lineIndex` — cross-reference with `todoColors` Map to trace color bugs
+
+---
+
 ## Useful Context for Future Sessions
 
 - **Electron workaround:** On Node v26+, run the unzip command after `npm install` (see [[Dev_Environment_Setup]])
@@ -84,3 +119,6 @@ Key decisions and context from build sessions with Claude. Use this to resume wo
 - **Guide files are read-only:** Never write back to guide files. Wiki-linked step state lives in localStorage only
 - **`renderTodos()` rebuilds all HTML:** After any state change that affects the view, call `renderTodos()`. The only exception is chevron toggle and section collapse, which directly toggle DOM classes for performance
 - **GitNexus:** Run `npx gitnexus analyze` after significant refactors. Always run impact analysis before editing `attachTodoHandlers`, `renderTodos`, or any IPC handler — these are high-fan-out symbols
+- **`todoColors` keys are `filePath::lineIndex`** — any operation that inserts or deletes lines must call `shiftColorKeys(filePath, insertAt, ±1)` to keep colors on the right todos
+- **`insertStep` and `appendTodo` return `{ content, insertAt }`** — not just a string; callers must destructure to get the insertion point for `shiftColorKeys`
+- **Auto-refresh on focus** — `refreshVault()` fires on `window focus` event; skip if `pendingNewTodo` or `pendingNewStep` is set to avoid interrupting inline edits
