@@ -440,8 +440,8 @@ async function reorderTodoBlock(filePath, fromLineIndex, toLineIndex) {
 
 // ── Pointer-event drag (Y-only, RAF-throttled) ─────────────────────────────
 function clearDragIndicators() {
-  todoListEl.querySelectorAll('.drag-over-top, .drag-over-bottom').forEach(el => {
-    el.classList.remove('drag-over-top', 'drag-over-bottom');
+  todoListEl.querySelectorAll('.drag-over-top, .drag-over-bottom, .drag-section-over').forEach(el => {
+    el.classList.remove('drag-over-top', 'drag-over-bottom', 'drag-section-over');
   });
 }
 
@@ -462,11 +462,46 @@ function initDrag(e, sourceItem, filePath, lineIndex) {
   document.body.appendChild(clone);
   sourceItem.classList.add('dragging');
 
+  // Determine source item's section so we never drop across section boundaries
+  const sourceFile = vaultFiles.find(f => f.path === filePath);
+  const sourceSection = sourceFile ? getTodoSectionTitle(lineIndex, sourceFile.content) : null;
+
+  // Snapshot original positions + sections before any margin animations run,
+  // so hit-testing never reacts to its own layout changes.
+  const snapshots = [...todoListEl.querySelectorAll('.todo-item:not(.new-todo-row):not(.todo-step)')]
+    .map(el => {
+      const r = el.getBoundingClientRect();
+      const elLine = parseInt(el.dataset.line, 10);
+      const elFile = el.dataset.file;
+      const elFileObj = elFile === filePath ? sourceFile : vaultFiles.find(f => f.path === elFile);
+      const section = elFileObj ? getTodoSectionTitle(elLine, elFileObj.content) : null;
+      return { el, top: r.top, bottom: r.bottom, filePath: elFile, section };
+    });
+
+  // Snapshot section headers so hovering one intentionally triggers a cross-section drop
+  const sectionSnapshots = [];
+  todoListEl.querySelectorAll('.section-sub-header').forEach(el => {
+    const key = el.dataset.sectionKey;
+    const sep = key.indexOf('::');
+    const headerFilePath = key.slice(0, sep);
+    const sectionTitle = key.slice(sep + 2);
+    const headerFile = vaultFiles.find(f => f.path === headerFilePath);
+    if (!headerFile) return;
+    const section = getFileSections(headerFile).find(s => s.title === sectionTitle);
+    if (!section) return;
+    const r = el.getBoundingClientRect();
+    sectionSnapshots.push({ el, top: r.top, bottom: r.bottom, filePath: headerFilePath, sectionTitle, section });
+  });
+
+  todoListEl.classList.add('dragging-active');
+
   dragState = {
     filePath, fromLineIndex: lineIndex,
     sourceItem, cloneEl: clone,
     startMouseY: e.clientY, cloneStartY: rect.top,
-    currentTarget: null, currentInsertBefore: null
+    currentTarget: null, currentInsertBefore: null,
+    currentSectionTarget: null,
+    snapshots, sectionSnapshots, sourceSection
   };
 
   document.addEventListener('pointermove', onDragPointerMove);
@@ -486,28 +521,48 @@ function onDragPointerMove(e) {
     // Move clone on Y axis only
     dragState.cloneEl.style.top = (dragState.cloneStartY + (ev.clientY - dragState.startMouseY)) + 'px';
 
-    // Hit-test under cursor (hide clone so it doesn't block elementFromPoint)
-    dragState.cloneEl.style.visibility = 'hidden';
-    const el = document.elementFromPoint(ev.clientX, ev.clientY);
-    dragState.cloneEl.style.visibility = '';
+    const mouseY = ev.clientY;
 
-    let targetItem = el?.closest('.todo-item');
-    if (targetItem?.classList.contains('new-todo-row') || targetItem?.classList.contains('todo-step')) targetItem = null;
+    // Check section headers first — hovering one intentionally triggers a cross-section drop
+    const hoveredSection = dragState.sectionSnapshots.find(
+      s => s.filePath === dragState.filePath &&
+           s.sectionTitle !== dragState.sourceSection &&
+           mouseY >= s.top && mouseY <= s.bottom
+    ) ?? null;
 
-    if (!targetItem || targetItem === dragState.sourceItem || targetItem.dataset.file !== dragState.filePath) {
+    if (hoveredSection !== dragState.currentSectionTarget) {
       clearDragIndicators();
+      dragState.currentSectionTarget = hoveredSection;
       dragState.currentTarget = null;
-      return;
+      if (hoveredSection) hoveredSection.el.classList.add('drag-section-over');
     }
 
-    const targetRect = targetItem.getBoundingClientRect();
-    const insertBefore = ev.clientY < targetRect.top + targetRect.height / 2;
+    if (hoveredSection) return; // section header is active — skip item hit-testing
 
-    if (targetItem !== dragState.currentTarget || insertBefore !== dragState.currentInsertBefore) {
+    // Use frozen snapshot positions so margin animations don't affect hit-testing.
+    // Restrict to the same section so the cursor can't fall through to the next one.
+    const candidates = dragState.snapshots.filter(
+      s => s.filePath === dragState.filePath &&
+           s.el !== dragState.sourceItem &&
+           s.section === dragState.sourceSection
+    );
+
+    // Gap moves to BEFORE the first item whose original bottom hasn't been crossed yet.
+    let newTarget = null;
+    let newInsertBefore = true;
+    for (const snap of candidates) {
+      if (mouseY < snap.bottom) { newTarget = snap.el; newInsertBefore = true; break; }
+    }
+    if (!newTarget && candidates.length > 0) {
+      newTarget = candidates[candidates.length - 1].el;
+      newInsertBefore = false;
+    }
+
+    if (newTarget !== dragState.currentTarget || newInsertBefore !== dragState.currentInsertBefore) {
       clearDragIndicators();
-      dragState.currentTarget      = targetItem;
-      dragState.currentInsertBefore = insertBefore;
-      targetItem.classList.add(insertBefore ? 'drag-over-top' : 'drag-over-bottom');
+      dragState.currentTarget       = newTarget;
+      dragState.currentInsertBefore = newInsertBefore;
+      if (newTarget) newTarget.classList.add(newInsertBefore ? 'drag-over-top' : 'drag-over-bottom');
     }
   });
 }
@@ -519,11 +574,18 @@ async function onDragPointerUp() {
   lastMoveEvent = null;
   if (!dragState) return;
 
-  const { sourceItem, cloneEl, currentTarget, currentInsertBefore, filePath, fromLineIndex } = dragState;
+  const { sourceItem, cloneEl, currentTarget, currentInsertBefore, currentSectionTarget, filePath, fromLineIndex } = dragState;
   dragState = null;
   cloneEl.remove();
   sourceItem.classList.remove('dragging');
+  todoListEl.classList.remove('dragging-active');
   clearDragIndicators();
+
+  // Cross-section drop: append to the target section
+  if (currentSectionTarget?.section) {
+    await moveTodoToSection(filePath, fromLineIndex, currentSectionTarget.section);
+    return;
+  }
 
   if (!currentTarget) return;
 
@@ -554,6 +616,7 @@ function onDragCancel() {
   if (dragState) {
     dragState.cloneEl.remove();
     dragState.sourceItem.classList.remove('dragging');
+    todoListEl.classList.remove('dragging-active');
     clearDragIndicators();
     dragState = null;
   }

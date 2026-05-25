@@ -1276,6 +1276,20 @@ body {
   border-bottom: 2px solid var(--blue);
 }
 
+/* Section headers become visible drop zones while a drag is active */
+.todo-list.dragging-active .section-sub-header {
+  outline: 1px dashed var(--border-bright);
+  border-radius: var(--radius);
+  cursor: copy;
+}
+
+.section-sub-header.drag-section-over {
+  background: rgba(122, 162, 247, 0.15);
+  outline: 1px solid var(--blue);
+  border-radius: var(--radius);
+  color: var(--blue);
+}
+
 /* ── Scrollbar ─────────────────────────────── */
 ::-webkit-scrollbar {
   width: 5px;
