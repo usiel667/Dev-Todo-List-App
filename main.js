@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 
 if (process.env.NODE_ENV !== 'production') {
-  require('electron-reload')(__dirname, {
+  require('electron-reload')(path.join(__dirname, 'src'), {
     electron: path.join(__dirname, 'node_modules', '.bin', 'electron'),
     hardReset: true
   });

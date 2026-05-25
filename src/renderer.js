@@ -40,6 +40,46 @@ function closeTab(tabId) {
   renderTodos();
 }
 
+function showTabPicker(anchorEl) {
+  const existing = document.getElementById('tab-picker');
+  if (existing) { existing.remove(); return; }
+
+  const picker = document.createElement('div');
+  picker.id = 'tab-picker';
+  picker.className = 'tab-picker';
+
+  if (!vaultPath || vaultFiles.length === 0) {
+    picker.innerHTML = '<div class="tab-picker-empty">No vault open</div>';
+  } else {
+    for (const file of vaultFiles) {
+      const isOpen = tabs.some(t => t.filePath === file.path);
+      const item = document.createElement('div');
+      item.className = 'tab-picker-item' + (isOpen ? ' is-open' : '');
+      item.innerHTML = `
+        <span class="tab-picker-check">${isOpen ? '✓' : ''}</span>
+        <span class="tab-picker-label">${escHtml(stripMd(file.name))}</span>
+      `;
+      item.addEventListener('click', () => { openFileTab(file); picker.remove(); });
+      picker.appendChild(item);
+    }
+  }
+
+  document.body.appendChild(picker);
+  const r = anchorEl.getBoundingClientRect();
+  let left = r.left;
+  if (left + 200 > window.innerWidth - 8) left = window.innerWidth - 208;
+  picker.style.left = left + 'px';
+  picker.style.top = (r.bottom + 4) + 'px';
+
+  const dismiss = e => {
+    if (!picker.contains(e.target) && e.target !== anchorEl) {
+      picker.remove();
+      document.removeEventListener('click', dismiss, true);
+    }
+  };
+  setTimeout(() => document.addEventListener('click', dismiss, true), 0);
+}
+
 function renderTabs() {
   const tabsEl = document.querySelector('.workspace-tabs');
   tabsEl.innerHTML = '';
@@ -62,10 +102,19 @@ function renderTabs() {
     if (closeBtn) closeBtn.addEventListener('click', e => { e.stopPropagation(); closeTab(tab.id); });
     tabsEl.appendChild(div);
   }
+
+  const addBtn = document.createElement('button');
+  addBtn.className = 'tab-new-btn';
+  addBtn.title = 'Open file in new tab';
+  addBtn.textContent = '+';
+  addBtn.addEventListener('click', e => { e.stopPropagation(); showTabPicker(addBtn); });
+  tabsEl.appendChild(addBtn);
 }
-const collapsedGroups  = new Set();
-const todoColors       = new Map(); // todo id  → color string
-const fileIconColors   = new Map(); // file path → color string
+const collapsedGroups   = new Set();
+const collapsedSections = new Set(); // key: `${filePath}::${sectionTitle}`
+const collapsedSteps    = new Set(); // parent todo id → steps collapsed
+const todoColors        = new Map(); // todo id  → color string
+const fileIconColors    = new Map(); // file path → color string
 
 const COLORS = [
   { label: 'Default', value: null },
@@ -91,6 +140,7 @@ const todoCountEl      = document.getElementById('todo-count');
 const newFileBtn       = document.getElementById('new-file-btn');
 
 let pendingNewTodo = null; // { filePath }
+let pendingNewStep = null; // { filePath, parentLineIndex }
 
 const titlebarVaultEl   = document.getElementById('titlebar-vault');
 const statusVaultLabel  = document.getElementById('status-vault-label');
@@ -181,6 +231,48 @@ document.addEventListener('click', e => {
   if (dropdownEl.style.display === 'none') return;
   if (!dropdownEl.contains(e.target) && !e.target.closest('.more-btn') && !e.target.closest('.group-icon')) hideDropdown();
 });
+
+// ── Guide step state (localStorage) ───────────────────────────────────────
+function getStepDone(filePath, lineIndex) {
+  return localStorage.getItem(`stepDone::${filePath}::${lineIndex}`) === 'true';
+}
+function setStepDone(filePath, lineIndex, done) {
+  const key = `stepDone::${filePath}::${lineIndex}`;
+  if (done) localStorage.setItem(key, 'true');
+  else localStorage.removeItem(key);
+}
+
+// Returns step headings from a wiki-linked guide file, or [] if none
+function getLinkedSteps(todoText) {
+  const links = [...todoText.matchAll(/\[\[([^\]]+)\]\]/g)].map(m => m[1].trim());
+  for (const link of links) {
+    const file = vaultFiles.find(f => stripMd(f.name).toLowerCase() === link.toLowerCase());
+    if (!file) continue;
+    const steps = file.content.split('\n').flatMap((line, lineIndex) => {
+      const m = line.match(STEP_HEADING_RE);
+      if (!m) return [];
+      return [{ id: `${file.path}::step::${lineIndex}`, text: m[1].trim(), lineIndex, filePath: file.path, done: getStepDone(file.path, lineIndex) }];
+    });
+    if (steps.length > 0) return steps;
+  }
+  return [];
+}
+
+// ── Todo tree (parent + indented steps) ───────────────────────────────────
+function buildTodoTree(todos) {
+  const roots = [];
+  let lastRoot = null;
+  for (const todo of todos) {
+    if (todo.indent.length === 0) {
+      const node = { ...todo, children: [] };
+      roots.push(node);
+      lastRoot = node;
+    } else if (lastRoot) {
+      lastRoot.children.push(todo);
+    }
+  }
+  return roots;
+}
 
 // ── Section helpers ────────────────────────────────────────────────────────
 function getFileSections(file) {
@@ -278,6 +370,7 @@ document.getElementById('section-header-tags').addEventListener('click', () => {
 
 // ── Markdown helpers ───────────────────────────────────────────────────────
 const CHECKBOX_RE = /^(\s*)-\s+\[([ xX])\]\s+(.+)$/;
+const STEP_HEADING_RE = /^#{1,6}\s+(Step\s+\d+\b.*)$/i;
 
 function parseTodos(file) {
   return file.content.split('\n').flatMap((line, lineIndex) => {
@@ -348,12 +441,63 @@ function appendTodo(fileContent, text) {
   return lines.join('\n');
 }
 
+function insertStep(fileContent, parentLineIndex, stepText) {
+  const lines = fileContent.split('\n');
+  let insertAt = parentLineIndex + 1;
+  let stepCount = 0;
+  while (insertAt < lines.length) {
+    const m = lines[insertAt].match(CHECKBOX_RE);
+    if (m && m[1].length > 0) { stepCount++; insertAt++; }
+    else break;
+  }
+  lines.splice(insertAt, 0, `  - [ ] Step ${stepCount + 1} — ${stepText}`);
+  return lines.join('\n');
+}
+
+// ── Recent vaults (localStorage) ──────────────────────────────────────────
+function getRecentVaults() {
+  try { return JSON.parse(localStorage.getItem('recentVaults') || '[]'); }
+  catch { return []; }
+}
+
+function addRecentVault(folderPath) {
+  const list = getRecentVaults().filter(p => p !== folderPath);
+  list.unshift(folderPath);
+  localStorage.setItem('recentVaults', JSON.stringify(list.slice(0, 5)));
+}
+
+function renderRecentVaults() {
+  const listEl = document.getElementById('recent-vaults-list');
+  if (!listEl) return;
+  const recents = getRecentVaults();
+  if (recents.length === 0) {
+    listEl.innerHTML = '<div class="recent-empty">No recent vaults</div>';
+  } else {
+    listEl.innerHTML = recents.map(p => {
+      const name = p.split(/[\\/]/).pop();
+      return `<div class="recent-vault-item" data-path="${escHtml(p)}">
+        <span class="recent-vault-name">${escHtml(name)}</span>
+        <span class="recent-vault-path">${escHtml(p)}</span>
+      </div>`;
+    }).join('');
+    listEl.querySelectorAll('.recent-vault-item').forEach(item => {
+      item.addEventListener('click', () => openVaultByPath(item.dataset.path));
+    });
+  }
+  listEl.style.display = 'block';
+}
+
 // ── Vault operations ───────────────────────────────────────────────────────
 async function openVault() {
   const folder = await window.vault.openVault();
   if (!folder) return;
-  vaultPath = folder;
-  const vaultBaseName = folder.split(/[\\/]/).pop();
+  addRecentVault(folder);
+  await openVaultByPath(folder);
+}
+
+async function openVaultByPath(folderPath) {
+  vaultPath = folderPath;
+  const vaultBaseName = folderPath.split(/[\\/]/).pop();
   vaultNameEl.textContent = vaultBaseName;
   titlebarVaultEl.textContent = vaultBaseName;
   await refreshVault();
@@ -485,36 +629,108 @@ function renderTodos() {
     </div>`;
     html += `<div class="file-group-todos${isCollapsed ? ' hidden' : ''}">`;
 
-    let currentSection = null;
+    // Group todos by section for collapsible sections
+    const sectionGroups = [];
+    let curGroup = null;
     for (const todo of todos) {
       const section = getTodoSectionTitle(todo.lineIndex, file.content);
-      if (section !== currentSection) {
-        currentSection = section;
-        if (section) {
-          html += `<div class="section-sub-header">${escHtml(section)}</div>`;
+      if (!curGroup || section !== curGroup.title) {
+        curGroup = { title: section, todos: [] };
+        sectionGroups.push(curGroup);
+      }
+      curGroup.todos.push(todo);
+    }
+
+    for (const group of sectionGroups) {
+      const sectionKey = `${file.path}::${group.title ?? ''}`;
+      const isSectionCollapsed = !!group.title && collapsedSections.has(sectionKey);
+
+      if (group.title) {
+        html += `<div class="section-group">
+          <div class="section-sub-header" data-section-key="${escHtml(sectionKey)}">
+            <span class="section-sub-arrow${isSectionCollapsed ? ' collapsed' : ''}">
+              <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+            </span>
+            ${escHtml(group.title)}
+          </div>
+          <div class="section-todos${isSectionCollapsed ? ' hidden' : ''}">`;
+      }
+
+      for (const node of buildTodoTree(group.todos)) {
+        const hasPendingStep = pendingNewStep?.filePath === node.filePath && pendingNewStep?.parentLineIndex === node.lineIndex;
+        const linkedSteps = getLinkedSteps(node.text);
+        const hasSteps = node.children.length > 0 || hasPendingStep || linkedSteps.length > 0;
+        const stepsCollapsed = collapsedSteps.has(node.id) && !hasPendingStep;
+        const textNoTags = node.text.replace(/#[\w-]+/g, '').trim();
+        const tagsHtml = node.tags.map(t => `<span class="todo-tag">#${escHtml(t)}</span>`).join('');
+        const todoColor = todoColors.get(node.id);
+
+        if (hasSteps) html += `<div class="todo-with-steps">`;
+
+        html += `
+          <div class="todo-item${node.done ? ' done' : ''}" data-id="${escHtml(node.id)}" data-file="${escHtml(node.filePath)}" data-line="${node.lineIndex}" style="${todoColor ? `border-left-color:${todoColor}` : ''}">
+            ${hasSteps ? `<span class="steps-chevron${stepsCollapsed ? ' collapsed' : ''}" data-parent-id="${escHtml(node.id)}" title="${stepsCollapsed ? 'Expand' : 'Collapse'} steps"><svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>` : ''}
+            <input type="checkbox" class="todo-checkbox" ${node.done ? 'checked' : ''} />
+            <div class="todo-body">
+              <div class="todo-text">${renderTodoText(textNoTags)}</div>
+              ${tagsHtml ? `<div class="todo-tags">${tagsHtml}</div>` : ''}
+            </div>
+            <div class="todo-actions">
+              <button class="btn-icon add-step-btn" data-file="${escHtml(node.filePath)}" data-line="${node.lineIndex}" data-parent-id="${escHtml(node.id)}" title="Add step">↳</button>
+              <button class="btn-icon edit-btn" title="Edit">✎</button>
+              <button class="btn-icon more-btn" title="Color / Move">⋯</button>
+              <button class="btn-icon danger delete-btn" title="Delete">✕</button>
+            </div>
+          </div>`;
+
+        if (hasSteps) {
+          html += `<div class="todo-steps${stepsCollapsed ? ' hidden' : ''}">`;
+          for (const child of node.children) {
+            const childText = child.text.replace(/#[\w-]+/g, '').trim();
+            const childTags = child.tags.map(t => `<span class="todo-tag">#${escHtml(t)}</span>`).join('');
+            const childColor = todoColors.get(child.id);
+            html += `
+              <div class="todo-item todo-step${child.done ? ' done' : ''}" data-id="${escHtml(child.id)}" data-file="${escHtml(child.filePath)}" data-line="${child.lineIndex}" data-parent-id="${escHtml(node.id)}" style="${childColor ? `border-left-color:${childColor}` : ''}">
+                <input type="checkbox" class="todo-checkbox" ${child.done ? 'checked' : ''} />
+                <div class="todo-body">
+                  <div class="todo-text">${renderTodoText(childText)}</div>
+                  ${childTags ? `<div class="todo-tags">${childTags}</div>` : ''}
+                </div>
+                <div class="todo-actions">
+                  <button class="btn-icon edit-btn" title="Edit">✎</button>
+                  <button class="btn-icon more-btn" title="Color / Move">⋯</button>
+                  <button class="btn-icon danger delete-btn" title="Delete">✕</button>
+                </div>
+              </div>`;
+          }
+          for (const step of linkedSteps) {
+            html += `
+              <div class="todo-item todo-step todo-linked-step${step.done ? ' done' : ''}" data-id="${escHtml(step.id)}" data-step-file="${escHtml(step.filePath)}" data-step-line="${step.lineIndex}">
+                <input type="checkbox" class="todo-checkbox linked-step-checkbox" ${step.done ? 'checked' : ''} />
+                <div class="todo-body">
+                  <div class="todo-text">${escHtml(step.text)}</div>
+                </div>
+              </div>`;
+          }
+
+          if (hasPendingStep) {
+            const stepN = node.children.length + 1;
+            html += `
+              <div class="todo-item todo-step new-todo-row">
+                <input type="checkbox" class="todo-checkbox" disabled />
+                <div class="todo-body new-step-body">
+                  <span class="step-prefix-label">Step ${stepN} —</span>
+                  <input type="text" class="todo-text-edit new-step-inline" placeholder="description… Enter to save · Esc to cancel" />
+                </div>
+              </div>`;
+          }
+          html += `</div></div>`;
         }
       }
 
-      const textNoTags = todo.text.replace(/#[\w-]+/g, '').trim();
-      const tagsHtml = todo.tags.map(t =>
-        `<span class="todo-tag">#${escHtml(t)}</span>`
-      ).join('');
-      const textHtml = renderTodoText(textNoTags);
-
-      const todoColor = todoColors.get(todo.id);
-      html += `
-        <div class="todo-item${todo.done ? ' done' : ''}" data-id="${escHtml(todo.id)}" data-file="${escHtml(todo.filePath)}" data-line="${todo.lineIndex}" style="${todoColor ? `border-left-color:${todoColor}` : ''}">
-          <input type="checkbox" class="todo-checkbox" ${todo.done ? 'checked' : ''} />
-          <div class="todo-body">
-            <div class="todo-text">${textHtml}</div>
-            ${tagsHtml ? `<div class="todo-tags">${tagsHtml}</div>` : ''}
-          </div>
-          <div class="todo-actions">
-            <button class="btn-icon edit-btn" title="Edit">✎</button>
-            <button class="btn-icon more-btn" title="Color / Move">⋯</button>
-            <button class="btn-icon danger delete-btn" title="Delete">✕</button>
-          </div>
-        </div>`;
+      if (group.title) {
+        html += `</div></div>`;
+      }
     }
 
     if (pendingNewTodo && pendingNewTodo.filePath === file.path) {
@@ -580,6 +796,119 @@ function attachTodoHandlers() {
     });
   });
 
+  // Linked guide step checkboxes (state in localStorage, guide file unchanged)
+  todoListEl.querySelectorAll('.linked-step-checkbox').forEach(cb => {
+    cb.addEventListener('change', e => {
+      const item = cb.closest('.todo-linked-step');
+      setStepDone(item.dataset.stepFile, parseInt(item.dataset.stepLine, 10), e.target.checked);
+      if (e.target.checked) {
+        const stepsEl = item.closest('.todo-steps');
+        const allDone = stepsEl && [...stepsEl.querySelectorAll('.todo-checkbox')].filter(c => !c.disabled).every(c => c.checked);
+        if (allDone) {
+          const parentId = stepsEl.closest('.todo-with-steps')?.querySelector('.todo-item:not(.todo-step)')?.dataset.id;
+          if (parentId) collapsedSteps.add(parentId);
+        }
+      }
+      renderTodos();
+    });
+  });
+
+  // Add step button — inserts indented step below the parent todo
+  todoListEl.querySelectorAll('.add-step-btn').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const filePath = btn.dataset.file;
+      const parentLineIndex = parseInt(btn.dataset.line, 10);
+      collapsedSteps.delete(btn.dataset.parentId); // expand if collapsed
+      pendingNewStep = { filePath, parentLineIndex };
+      renderTodos();
+      const input = todoListEl.querySelector('.new-step-inline');
+      if (input) input.focus();
+    });
+  });
+
+  // Inline new-step input
+  const stepInput = todoListEl.querySelector('.new-step-inline');
+  if (stepInput) {
+    const commitStep = async () => {
+      if (!pendingNewStep) return;
+      const text = stepInput.value.trim();
+      if (text) {
+        const file = vaultFiles.find(f => f.path === pendingNewStep.filePath);
+        if (file) {
+          file.content = insertStep(file.content, pendingNewStep.parentLineIndex, text);
+          await save(file);
+        }
+      }
+      pendingNewStep = null;
+      renderSidebar();
+      renderTodos();
+    };
+    stepInput.addEventListener('keydown', async e => {
+      if (e.key === 'Enter') { e.preventDefault(); await commitStep(); }
+      if (e.key === 'Escape') { pendingNewStep = null; renderTodos(); }
+    });
+    stepInput.addEventListener('blur', () => {
+      setTimeout(async () => { if (pendingNewStep) await commitStep(); }, 200);
+    });
+  }
+
+  // Steps chevron — toggle collapse without full re-render
+  todoListEl.querySelectorAll('.steps-chevron').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const parentId = btn.dataset.parentId;
+      const stepsEl = btn.closest('.todo-with-steps')?.querySelector('.todo-steps');
+      if (collapsedSteps.has(parentId)) {
+        collapsedSteps.delete(parentId);
+        btn.classList.remove('collapsed');
+        if (stepsEl) stepsEl.classList.remove('hidden');
+      } else {
+        collapsedSteps.add(parentId);
+        btn.classList.add('collapsed');
+        if (stepsEl) stepsEl.classList.add('hidden');
+      }
+    });
+  });
+
+  // Step items — checkbox uses toggleStep (auto-collapses when all done)
+  todoListEl.querySelectorAll('.todo-step:not(.todo-linked-step)').forEach(item => {
+    const filePath = item.dataset.file;
+    const lineIndex = parseInt(item.dataset.line, 10);
+    const parentId = item.dataset.parentId;
+
+    item.querySelector('.todo-checkbox').addEventListener('change', async e => {
+      await toggleStep(filePath, lineIndex, e.target.checked, parentId);
+    });
+    item.querySelector('.edit-btn').addEventListener('click', () => startEditTodo(item, filePath, lineIndex));
+    item.querySelector('.more-btn').addEventListener('click', e => {
+      e.stopPropagation();
+      showDropdown(e.currentTarget, 'todo', { todoId: item.dataset.id, filePath, lineIndex });
+    });
+    item.querySelector('.delete-btn').addEventListener('click', async () => deleteTodo(filePath, lineIndex));
+    item.querySelectorAll('.wiki-link').forEach(linkEl => {
+      linkEl.addEventListener('click', e => { e.stopPropagation(); window.vault.openObsidianFile(vaultPath, linkEl.dataset.link); });
+    });
+  });
+
+  // Section collapse toggles
+  todoListEl.querySelectorAll('.section-sub-header').forEach(header => {
+    header.addEventListener('click', () => {
+      const key = header.dataset.sectionKey;
+      const todosEl = header.nextElementSibling;
+      const arrow = header.querySelector('.section-sub-arrow');
+      if (collapsedSections.has(key)) {
+        collapsedSections.delete(key);
+        arrow.classList.remove('collapsed');
+        todosEl.classList.remove('hidden');
+      } else {
+        collapsedSections.add(key);
+        arrow.classList.add('collapsed');
+        todosEl.classList.add('hidden');
+      }
+    });
+  });
+
   // Inline new-todo input
   const inlineInput = todoListEl.querySelector('.new-todo-inline');
   if (inlineInput) {
@@ -627,8 +956,8 @@ function attachTodoHandlers() {
     }
   }
 
-  // Regular todo items (skip the new-todo-row)
-  todoListEl.querySelectorAll('.todo-item:not(.new-todo-row)').forEach(item => {
+  // Regular todo items (skip new-todo-row and steps — steps have their own handlers above)
+  todoListEl.querySelectorAll('.todo-item:not(.new-todo-row):not(.todo-step)').forEach(item => {
     const filePath = item.dataset.file;
     const lineIndex = parseInt(item.dataset.line, 10);
 
@@ -664,6 +993,22 @@ async function toggleTodo(filePath, lineIndex, done) {
   if (!file) return;
   file.content = setTodoDone(file.content, lineIndex, done);
   await save(file);
+  renderSidebar();
+  renderTodos();
+}
+
+async function toggleStep(filePath, lineIndex, done, parentId) {
+  const file = vaultFiles.find(f => f.path === filePath);
+  if (!file) return;
+  file.content = setTodoDone(file.content, lineIndex, done);
+  await save(file);
+  if (parentId) {
+    const tree = buildTodoTree(parseTodos(file));
+    const parentNode = tree.find(n => n.id === parentId);
+    if (parentNode && parentNode.children.length > 0 && parentNode.children.every(c => c.done)) {
+      collapsedSteps.add(parentId);
+    }
+  }
   renderSidebar();
   renderTodos();
 }
@@ -773,3 +1118,15 @@ if (openVaultBtn2) openVaultBtn2.addEventListener('click', openVault);
 newFileBtn.addEventListener('click', createNewFile);
 searchInput.addEventListener('input', e => { searchQuery = e.target.value; renderTodos(); });
 statusFilterEl.addEventListener('change', e => { statusFilter = e.target.value; renderTodos(); });
+
+const openRecentBtn = document.getElementById('open-recent-btn');
+if (openRecentBtn) {
+  openRecentBtn.addEventListener('click', () => {
+    const listEl = document.getElementById('recent-vaults-list');
+    if (listEl && listEl.style.display === 'block') {
+      listEl.style.display = 'none';
+    } else {
+      renderRecentVaults();
+    }
+  });
+}
