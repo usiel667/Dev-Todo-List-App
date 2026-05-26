@@ -88,10 +88,42 @@ Files can have headings that group todos into sections:
 |-----|-------|-------------|
 | `recentVaults` | `JSON string[]` | Array of absolute vault folder paths, most-recent first |
 | `stepDone::${filePath}::${lineIndex}` | `'1'` or absent | Done state for a linked guide step |
-| `todoColors` | *(not yet persisted)* | Planned: Map of todo id → CSS color |
-| `fileIconColors` | *(not yet persisted)* | Planned: Map of file path → CSS color |
+| `todoColors` | *(not yet persisted)* | Planned: `JSON.stringify([...todoColors])` — array of `[key, color]` pairs |
+| `fileIconColors` | *(not yet persisted)* | Planned: `JSON.stringify([...fileIconColors])` — array of `[filePath, color]` pairs |
 | `collapsedGroups` | *(not yet persisted)* | Planned: Set of file paths whose group is collapsed |
 | `collapsedSections` | *(not yet persisted)* | Planned: Set of `filePath::sectionTitle` keys |
+
+### Color Persistence — Implementation Notes
+
+**savePalette() / loadPalette() pattern:**
+```js
+function savePalette() {
+  localStorage.setItem('todoColors',    JSON.stringify([...todoColors]));
+  localStorage.setItem('fileIconColors', JSON.stringify([...fileIconColors]));
+}
+
+function loadPalette() {
+  try {
+    const tc = localStorage.getItem('todoColors');
+    if (tc) for (const [k, v] of JSON.parse(tc)) todoColors.set(k, v);
+    const ic = localStorage.getItem('fileIconColors');
+    if (ic) for (const [k, v] of JSON.parse(ic)) fileIconColors.set(k, v);
+  } catch { /* ignore corrupt data */ }
+}
+```
+
+**Call `loadPalette()` once** at module startup (near the Map declarations), before any render.
+
+**Call `savePalette()` after each of these 6 mutation sites** in `renderer.js`:
+1. `showDropdown` color swatch click (user picks a color — covers both maps)
+2. `deleteTodo` (calls `shiftColorKeys`)
+3. `reorderTodoBlock` (bulk remaps keys)
+4. `moveTodoToSection` (remaps keys)
+5. `commitStep` handler inside `attachTodoHandlers` (calls `shiftColorKeys`)
+6. `commitNewTodo` handler inside `attachTodoHandlers` (calls `shiftColorKeys`)
+
+**Known limitation — external line shifts:**
+`todoColors` keys are `filePath::lineIndex`. `shiftColorKeys` keeps these correct for all in-app mutations. However, if a file is edited externally in Obsidian *while the app is closed*, line numbers can shift and saved colors will point to the wrong todos on next load. There is no way to detect this without comparing file snapshots at startup. Acceptable for a personal dev tool — just be aware colors may drift after heavy external edits.
 
 ---
 
