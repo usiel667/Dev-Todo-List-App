@@ -9,10 +9,11 @@ A central index for all project documentation. Click any link to open the note d
 ### In Progress
 - [x] Fix color / move dropdown not showing menu when clicked — see [[Bug_Fixes]]
 - [x] Fix section sub-headers (In Progress, Before Production) not collapsing — see [[Bug_Fixes]]
-- [ ] add todo button drop down.
-- [ ] Add undo feature for accidental edits / deletions in markdown files
+- [x] add todo button drop down.
 - [ ] Add link to md file in the drop down in todo and for file
+- [ ] Add undo feature for accidental edits / deletions in markdown files
 - [ ] New note button not working — see [[Bug_Fixes]]
+- [x] hello
 
 ### Before Production
 - [ ] Add window minimize / maximize / close controls to frameless titlebar
@@ -21,17 +22,17 @@ A central index for all project documentation. Click any link to open the note d
 - [ ] Handle vault read errors gracefully in the UI (not just alert)
 
 ### Planned Features
-- [ ] Drag-and-drop to reorder todos within a section
-- [ ] Multi-vault support (switch between vaults without restarting)
-- [ ] Add keyboard shortcut (Cmd/Ctrl+K) to focus search input
-- [ ] Build files and folders for a new project from within the app
+- [x] Drag-and-drop to reorder todos within a section
+- [ ] Drop down link to md file
 - [ ] Dark / light theme toggle
 - [ ] make keybindings for vim motions
+- [ ] Multi-vault support (switch between vaults without restarting)
+- [ ] Build files and folders for a new project from within the app
+- [ ] Add keyboard shortcut (Cmd/Ctrl+K) to focus search input
 - [ ] create settings and a button for that
 
 ### Obsidian Setup
 - [x] Install Dataview plugin — auto-generate live TODO lists from all notes
-- [ ] Drop down link to md file
 - [ ] Install Tasks plugin — enhanced checkbox management
 - [ ] Install Git plugin — commit notes alongside code from inside Obsidian
 

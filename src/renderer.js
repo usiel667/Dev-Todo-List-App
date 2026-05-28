@@ -173,15 +173,22 @@ const titlebarVaultEl   = document.getElementById('titlebar-vault');
 const statusVaultLabel  = document.getElementById('status-vault-label');
 const statusTodoCount   = document.getElementById('status-todo-count');
 
-const dropdownEl          = document.getElementById('todo-dropdown');
-const dropdownSwatchesEl  = document.getElementById('dropdown-swatches');
-const dropdownSectionsEl  = document.getElementById('dropdown-sections');
-const dropdownSectionList = document.getElementById('dropdown-section-list');
+const dropdownEl             = document.getElementById('todo-dropdown');
+const dropdownSwatchesEl     = document.getElementById('dropdown-swatches');
+const dropdownSectionsEl     = document.getElementById('dropdown-sections');
+const dropdownSectionList    = document.getElementById('dropdown-section-list');
+const dropdownSectionsLabel  = dropdownSectionsEl.querySelector('.dropdown-label');
+const dropdownDividerEl      = dropdownSectionsEl.querySelector('.dropdown-divider');
 
-let dropdownContext = null; // { mode: 'todo'|'icon', todoId?, filePath, lineIndex? }
+let dropdownContext = null; // { mode, anchorEl, todoId?, filePath, lineIndex? }
 
 function showDropdown(anchorEl, mode, ctx) {
-  dropdownContext = { mode, ...ctx };
+  // Toggle: clicking the same button again closes the dropdown
+  if (dropdownEl.style.display !== 'none' && dropdownContext?.anchorEl === anchorEl) {
+    hideDropdown();
+    return;
+  }
+  dropdownContext = { mode, anchorEl, ...ctx };
 
   // Color swatches
   dropdownSwatchesEl.innerHTML = '';
@@ -202,13 +209,31 @@ function showDropdown(anchorEl, mode, ctx) {
     dropdownSwatchesEl.appendChild(btn);
   }
 
-  // Section list — for todo mode and new-section mode
-  if (mode === 'todo' || mode === 'new-section') {
+  // Section list — for todo mode, new-section mode, and group-add mode
+  if (mode === 'todo' || mode === 'new-section' || mode === 'group-add') {
     dropdownSectionsEl.style.display = '';
     dropdownSectionList.innerHTML = '';
     const file = vaultFiles.find(f => f.path === ctx.filePath);
     const sections = file ? getFileSections(file) : [];
-    if (sections.length === 0) {
+    if (mode === 'group-add') {
+      dropdownSectionsLabel.textContent = 'Add to';
+      dropdownDividerEl.style.display = 'none';
+      for (const sec of sections) {
+        const btn = document.createElement('button');
+        btn.className = 'dropdown-section-item';
+        btn.textContent = sec.title;
+        btn.addEventListener('click', () => {
+          hideDropdown();
+          collapsedGroups.delete(ctx.filePath);
+          pendingNewTodo = { filePath: ctx.filePath, targetSection: sec };
+          renderTodos();
+          const input = todoListEl.querySelector('.new-todo-inline');
+          if (input) input.focus();
+        });
+        dropdownSectionList.appendChild(btn);
+      }
+      dropdownSwatchesEl.parentElement.style.display = 'none';
+    } else if (sections.length === 0) {
       dropdownSectionList.innerHTML = '<span class="dropdown-empty">No sections in this file</span>';
     } else {
       for (const sec of sections) {
@@ -218,7 +243,6 @@ function showDropdown(anchorEl, mode, ctx) {
         btn.addEventListener('click', async () => {
           hideDropdown();
           if (mode === 'new-section' && pendingNewTodo) {
-            // Set the target section then re-render and re-focus input
             pendingNewTodo.targetSection = sec;
             renderTodos();
             const input = todoListEl.querySelector('.new-todo-inline');
@@ -251,12 +275,14 @@ function showDropdown(anchorEl, mode, ctx) {
 function hideDropdown() {
   dropdownEl.style.display = 'none';
   dropdownContext = null;
-  dropdownSwatchesEl.parentElement.style.display = ''; // restore if hidden
+  dropdownSwatchesEl.parentElement.style.display = '';
+  dropdownDividerEl.style.display = '';
+  dropdownSectionsLabel.textContent = 'Move to section';
 }
 
 document.addEventListener('click', e => {
   if (dropdownEl.style.display === 'none') return;
-  if (!dropdownEl.contains(e.target) && !e.target.closest('.more-btn') && !e.target.closest('.group-icon')) hideDropdown();
+  if (!dropdownEl.contains(e.target) && !e.target.closest('.more-btn') && !e.target.closest('.group-icon') && !e.target.closest('.group-add-btn')) hideDropdown();
 });
 
 // ── Guide step state (localStorage) ───────────────────────────────────────
@@ -315,7 +341,7 @@ function getFileSections(file) {
   for (let i = 0; i < allHeadings.length; i++) {
     const h = allHeadings[i];
     if (!parentRe.test(h.title)) continue;
-    result.push(h); // include the TODO / Checklist heading itself
+    // Don't include the TODO/Checklist parent heading itself — only sub-sections
     for (let j = i + 1; j < allHeadings.length; j++) {
       if (allHeadings[j].level <= h.level) break;
       result.push(allHeadings[j]);
@@ -334,7 +360,7 @@ async function moveTodoToSection(filePath, todoLineIndex, targetSection) {
   let sectionEnd = lines.length;
   for (let i = targetSection.lineIndex + 1; i < lines.length; i++) {
     const m = lines[i].match(/^(#{1,6})\s/);
-    if (m && m[1].length <= targetSection.level) { sectionEnd = i; break; }
+    if ((m && m[1].length <= targetSection.level) || /^---+\s*$/.test(lines[i])) { sectionEnd = i; break; }
   }
   let insertAt = sectionEnd;
   while (insertAt > targetSection.lineIndex + 1 && lines[insertAt - 1].trim() === '') insertAt--;
@@ -722,17 +748,30 @@ function appendTodo(fileContent, text) {
     return fileContent.trimEnd() + '\n- [ ] ' + text + '\n';
   }
 
-  // Find where the TODO section ends (next heading of same or higher level)
+  // Find where the TODO section ends (next heading of same or higher level, or a --- separator)
   let sectionEnd = lines.length;
   for (let i = todoLineIndex + 1; i < lines.length; i++) {
     const m = lines[i].match(/^(#{1,6})\s/);
-    if (m && m[1].length <= todoLevel) { sectionEnd = i; break; }
+    if ((m && m[1].length <= todoLevel) || /^---+\s*$/.test(lines[i])) { sectionEnd = i; break; }
   }
 
   // Step back over any trailing blank lines inside the section
   let insertAt = sectionEnd;
   while (insertAt > todoLineIndex + 1 && lines[insertAt - 1].trim() === '') insertAt--;
 
+  lines.splice(insertAt, 0, '- [ ] ' + text);
+  return { content: lines.join('\n'), insertAt };
+}
+
+function appendTodoToSection(fileContent, text, section) {
+  const lines = fileContent.split('\n');
+  let sectionEnd = lines.length;
+  for (let i = section.lineIndex + 1; i < lines.length; i++) {
+    const m = lines[i].match(/^(#{1,6})\s/);
+    if ((m && m[1].length <= section.level) || /^---+\s*$/.test(lines[i])) { sectionEnd = i; break; }
+  }
+  let insertAt = sectionEnd;
+  while (insertAt > section.lineIndex + 1 && lines[insertAt - 1].trim() === '') insertAt--;
   lines.splice(insertAt, 0, '- [ ] ' + text);
   return { content: lines.join('\n'), insertAt };
 }
@@ -1024,12 +1063,31 @@ function renderTodos() {
         }
       }
 
+      // Inject new-todo-row inside this section when it matches the target
+      const isTargetGroup = pendingNewTodo && pendingNewTodo.filePath === file.path &&
+        pendingNewTodo.targetSection && group.title === pendingNewTodo.targetSection.title;
+      if (isTargetGroup) {
+        html += `
+          <div class="todo-item new-todo-row">
+            <input type="checkbox" class="todo-checkbox" disabled />
+            <div class="todo-body">
+              <input type="text" class="todo-text-edit new-todo-inline" placeholder="New todo… Enter to save · Esc to cancel" />
+            </div>
+            <div class="todo-actions todo-actions-visible">
+              <button class="btn-icon new-todo-more-btn" data-file="${escHtml(file.path)}" title="Choose section">⋯</button>
+            </div>
+          </div>`;
+      }
+
       if (group.title) {
         html += `</div></div>`;
       }
     }
 
-    if (pendingNewTodo && pendingNewTodo.filePath === file.path) {
+    // No targetSection (or section has no visible todos) — fall back to bottom of file group
+    const targetSectionRendered = pendingNewTodo?.targetSection &&
+      sectionGroups.some(g => g.title === pendingNewTodo.targetSection.title);
+    if (pendingNewTodo && pendingNewTodo.filePath === file.path && !targetSectionRendered) {
       html += `
         <div class="todo-item new-todo-row">
           <input type="checkbox" class="todo-checkbox" disabled />
@@ -1063,15 +1121,21 @@ function attachTodoHandlers() {
       showDropdown(e.currentTarget, 'icon', { filePath: e.currentTarget.dataset.file });
     });
 
-    // + button → open inline new-todo input
+    // + button → section picker if file has sections, else open input directly
     header.querySelector('.group-add-btn').addEventListener('click', e => {
       e.stopPropagation();
       const filePath = e.currentTarget.dataset.file;
-      collapsedGroups.delete(filePath); // expand if collapsed
-      pendingNewTodo = { filePath };
-      renderTodos();
-      const input = todoListEl.querySelector('.new-todo-inline');
-      if (input) input.focus();
+      const fileObj = vaultFiles.find(f => f.path === filePath);
+      const sections = fileObj ? getFileSections(fileObj) : [];
+      if (sections.length > 0) {
+        showDropdown(e.currentTarget, 'group-add', { filePath });
+      } else {
+        collapsedGroups.delete(filePath);
+        pendingNewTodo = { filePath };
+        renderTodos();
+        const input = todoListEl.querySelector('.new-todo-inline');
+        if (input) input.focus();
+      }
     });
 
     // rest of header → collapse toggle
@@ -1218,15 +1282,10 @@ function attachTodoHandlers() {
         const file = vaultFiles.find(f => f.path === pendingNewTodo.filePath);
         if (file) {
           if (pendingNewTodo.targetSection) {
-            const { content, insertAt } = appendTodo(file.content, text);
+            const { content, insertAt } = appendTodoToSection(file.content, text, pendingNewTodo.targetSection);
             shiftColorKeys(file.path, insertAt, 1);
             file.content = content;
             await save(file);
-            // reload content then move to chosen section
-            const fresh = vaultFiles.find(f => f.path === pendingNewTodo.filePath);
-            const todos = parseTodos(fresh);
-            const newTodo = todos[todos.length - 1]; // last appended
-            if (newTodo) await moveTodoToSection(fresh.path, newTodo.lineIndex, pendingNewTodo.targetSection);
           } else {
             const { content, insertAt } = appendTodo(file.content, text);
             shiftColorKeys(file.path, insertAt, 1);

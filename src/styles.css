@@ -758,11 +758,16 @@ body {
 }
 
 .group-count {
-  font-size: 10px;
+  font-size: 20px;
   color: var(--text-dim);
   font-weight: 400;
   letter-spacing: 0;
   text-transform: none;
+}
+
+.group-add-btn svg {
+  width: 20px;
+  height: 20px;
 }
 
 .file-group-todos.hidden {
