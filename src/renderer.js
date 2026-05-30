@@ -174,6 +174,9 @@ const statusVaultLabel  = document.getElementById('status-vault-label');
 const statusTodoCount   = document.getElementById('status-todo-count');
 
 const dropdownEl             = document.getElementById('todo-dropdown');
+const dropdownActionsEl      = document.getElementById('dropdown-actions');
+const dropdownAddStepBtn     = document.getElementById('dropdown-add-step-btn');
+const dropdownGotoBtn        = document.getElementById('dropdown-goto-btn');
 const dropdownSwatchesEl     = document.getElementById('dropdown-swatches');
 const dropdownSectionsEl     = document.getElementById('dropdown-sections');
 const dropdownSectionList    = document.getElementById('dropdown-section-list');
@@ -189,6 +192,34 @@ function showDropdown(anchorEl, mode, ctx) {
     return;
   }
   dropdownContext = { mode, anchorEl, ...ctx };
+
+  // Actions section — shown for all todo items
+  if (mode === 'todo') {
+    dropdownActionsEl.style.display = '';
+
+    // Add step — only for parent todos
+    dropdownAddStepBtn.style.display = ctx.isParent ? '' : 'none';
+    if (ctx.isParent) {
+      dropdownAddStepBtn.onclick = () => {
+        hideDropdown();
+        collapsedSteps.delete(ctx.todoId);
+        pendingNewStep = { filePath: ctx.filePath, parentLineIndex: ctx.lineIndex };
+        renderTodos();
+        const input = todoListEl.querySelector('.new-step-inline');
+        if (input) input.focus();
+      };
+    }
+
+    // Open in Obsidian — for all todos
+    dropdownGotoBtn.onclick = () => {
+      hideDropdown();
+      const file = vaultFiles.find(f => f.path === ctx.filePath);
+      const relPath = file ? file.relativePath : ctx.filePath;
+      window.vault.openObsidianFile(vaultPath, relPath);
+    };
+  } else {
+    dropdownActionsEl.style.display = 'none';
+  }
 
   // Color swatches
   dropdownSwatchesEl.innerHTML = '';
@@ -1011,9 +1042,8 @@ function renderTodos() {
               ${tagsHtml ? `<div class="todo-tags">${tagsHtml}</div>` : ''}
             </div>
             <div class="todo-actions">
-              <button class="btn-icon add-step-btn" data-file="${escHtml(node.filePath)}" data-line="${node.lineIndex}" data-parent-id="${escHtml(node.id)}" title="Add step">↳</button>
               <button class="btn-icon edit-btn" title="Edit">✎</button>
-              <button class="btn-icon more-btn" title="Color / Move">⋯</button>
+              <button class="btn-icon more-btn" title="Color / Move / Add step">⋯</button>
               <button class="btn-icon danger delete-btn" title="Delete">✕</button>
             </div>
           </div>`;
@@ -1174,20 +1204,6 @@ function attachTodoHandlers() {
     });
   });
 
-  // Add step button — inserts indented step below the parent todo
-  todoListEl.querySelectorAll('.add-step-btn').forEach(btn => {
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      const filePath = btn.dataset.file;
-      const parentLineIndex = parseInt(btn.dataset.line, 10);
-      collapsedSteps.delete(btn.dataset.parentId); // expand if collapsed
-      pendingNewStep = { filePath, parentLineIndex };
-      renderTodos();
-      const input = todoListEl.querySelector('.new-step-inline');
-      if (input) input.focus();
-    });
-  });
-
   // Inline new-step input
   const stepInput = todoListEl.querySelector('.new-step-inline');
   if (stepInput) {
@@ -1333,7 +1349,7 @@ function attachTodoHandlers() {
 
     item.querySelector('.more-btn').addEventListener('click', e => {
       e.stopPropagation();
-      showDropdown(e.currentTarget, 'todo', { todoId: item.dataset.id, filePath, lineIndex });
+      showDropdown(e.currentTarget, 'todo', { todoId: item.dataset.id, filePath, lineIndex, isParent: true });
     });
 
     item.querySelector('.delete-btn').addEventListener('click', async () => {

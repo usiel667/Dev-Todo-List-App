@@ -146,6 +146,39 @@ Key decisions and context from build sessions with Claude. Use this to resume wo
 
 ---
 
+## Session 6 — Section-Picker Dropdown & Insertion Bug Fixes
+
+**Date:** 2026-05-27
+**Scope:** `+` button section picker, dropdown UX polish, section insertion correctness
+
+**Section-picker dropdown (`group-add` mode):**
+- `+` button on file group header checks `getFileSections(file)` — if sub-sections exist, calls `showDropdown(btn, 'group-add', { filePath })` instead of opening the input directly
+- Files with no sub-sections skip the dropdown entirely and open the inline input immediately (unchanged behavior)
+- New `'group-add'` mode in `showDropdown`: hides color swatches, hides divider, sets label to "Add to", lists sub-sections only
+- Section click sets `pendingNewTodo = { filePath, targetSection: sec }` and calls `renderTodos()` + focuses the input
+- `hideDropdown()` restores divider display and label text ("Move to section") for other modes
+
+**Dropdown UX polish:**
+- Toggle behavior: `showDropdown` stores `anchorEl` in `dropdownContext`; clicking the same button again calls `hideDropdown()` and returns — works for all three button types (⋯, icon, +)
+- Dismiss handler updated to also exclude `.group-add-btn` clicks
+- `getFileSections` no longer includes the parent `## TODO`/`## Checklist` heading — only sub-sections (`###` and below) are returned. Files with only a bare `## TODO` (no sub-sections) return empty and skip the dropdown
+
+**New-todo-row placement fix:**
+- Previously the inline input always rendered at the bottom of the file's todo block — after commit the todo was in the right section in the file but appeared far from where the user was looking
+- Fix: `renderTodos` injects the `new-todo-row` **inside** the matching section group (after that group's last todo, before the closing `</div></div>`)
+- Fallback: if `targetSection` is set but no matching group exists in the current filter (all todos in that section are done/filtered), the input falls back to the bottom of the file block
+
+**Section insertion correctness — `appendTodoToSection`:**
+- New function, replaces the old append-at-end-then-`moveTodoToSection` dance in `commitNewTodo`
+- Uses the same boundary-finding logic as `moveTodoToSection`: scans from `section.lineIndex + 1` for next heading at level ≤ section level, then walks back over trailing blank lines
+- `---` horizontal rules treated as hard section boundaries in `appendTodo`, `appendTodoToSection`, and `moveTodoToSection` — previously the scanner continued past them, placing todos after the separator (outside the TODO block entirely)
+- Root cause of the insertion-at-wrong-place bug: `---` between `## TODO` and `## App Layout` in Home.md was invisible to the heading scanner; the walk-back stopped at `---` (non-blank), placing todos in the gap between `---` and the next heading
+
+**Debugging note:**
+- Used `console.log` in `renderTodos`'s section-grouping loop and in `commitNewTodo` to confirm that insertion was correct at the file-content level; the actual bug was visual (input row at bottom of "All" view because Home.md is the last file in `vaultFiles`)
+
+---
+
 ## Useful Context for Future Sessions
 
 - **Electron workaround:** On Node v26+, run the unzip command after `npm install` (see [[Dev_Environment_Setup]])
@@ -161,3 +194,8 @@ Key decisions and context from build sessions with Claude. Use this to resume wo
 - **Section boundary enforcement** — candidates filtered by `s.section === dragState.sourceSection` (from `getTodoSectionTitle`); cross-section drops go through section header hit-testing, not item hit-testing
 - **`reorderTodoBlock` color remapping** — bulk remap using old→new index formula; deletes all file keys then reinserts. Don't use `shiftColorKeys` for block moves — it only handles single-line shifts
 - **Color persistence (not yet implemented)** — full plan in [[Vault_Format_Reference]] under "Color Persistence — Implementation Notes". Key points: `savePalette()` / `loadPalette()` helpers, 6 call sites for save, one known limitation (external line shifts while app is closed can misalign colors)
+- **`getFileSections` returns sub-sections only** — the parent `## TODO`/`## Checklist` heading is excluded. A file with only `## TODO` and no `###` sub-headings returns empty; the `+` button handler opens the input directly in that case
+- **`appendTodoToSection(fileContent, text, section)`** — inserts at the end of the target `###` sub-section. Returns `{ content, insertAt }`. Call `shiftColorKeys` after. Used in `commitNewTodo` when `pendingNewTodo.targetSection` is set
+- **`---` is a section boundary** — `appendTodo`, `appendTodoToSection`, and `moveTodoToSection` all stop at `/^---+\s*$/` in addition to same-or-higher-level headings. Required for vault files (like Home.md) that use `---` between `## TODO` and the next `##` section
+- **new-todo-row placement** — when `pendingNewTodo.targetSection` is set, `renderTodos` injects the input inside the matching section group. If the section has no visible todos (all filtered), falls back to bottom of file block. Do not revert to bottom-only placement — it broke the UX when Home.md was the last file in `vaultFiles`
+- **`dropdownContext.anchorEl`** — stored so `showDropdown` can toggle closed when the same button is clicked again. All three trigger buttons (⋯, icon, +) benefit automatically since they all call `showDropdown`

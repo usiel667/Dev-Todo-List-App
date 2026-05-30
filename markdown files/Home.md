@@ -10,7 +10,7 @@ A central index for all project documentation. Click any link to open the note d
 - [x] Fix color / move dropdown not showing menu when clicked — see [[Bug_Fixes]]
 - [x] Fix section sub-headers (In Progress, Before Production) not collapsing — see [[Bug_Fixes]]
 - [x] add todo button drop down.
-- [ ] Add link to md file in the drop down in todo and for file
+- [x] Add link to md file in the drop down in todo and for file
 - [ ] Add undo feature for accidental edits / deletions in markdown files
 - [ ] New note button not working — see [[Bug_Fixes]]
 - [x] hello
